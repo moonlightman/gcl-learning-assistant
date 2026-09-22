@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.0
+// @version      4.1
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
 // @match        https://gclu.gcl-power.com/*
 // @grant        GM_xmlhttpRequest
@@ -75,7 +75,7 @@
         .fill-state{font-size:12px;color:#acbdd6}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.0</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.1</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <label>不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
         <div class="label">已自动处理验证弹窗</div>
@@ -92,7 +92,7 @@
             <label>完整接口地址<input id="endpoint" value="https://api.deepseek.com/chat/completions" maxlength="500"></label>
             <label>模型<input id="model" value="deepseek-flash" maxlength="100"></label>
             <label>API 密钥<input id="apiKey" type="password" autocomplete="off" maxlength="500" placeholder="在这里填写 API Key"></label>
-            <label><input id="rememberKey" type="checkbox"> 将密钥保存在油猴私有存储（默认仅本次页面使用）</label>
+            <label><input id="rememberKey" type="checkbox" checked> 记住 API 密钥（保存设置或开始分析后生效）</label>
             <label>题目容器选择器（可选）<input id="selector" maxlength="300" placeholder="留空时自动识别"></label>
             <label>附加请求参数 JSON（仅按接口提供方文档配置）<textarea id="extra" maxlength="4000" placeholder="{}"></textarea></label>
             <div class="label">官方普通接口为模型解题，不自带网页检索。支持联网的代理接口须按其文档配置；模型声称“已搜索”不等于检索证据。</div>
@@ -358,6 +358,7 @@
                 for (const id of ['endpoint', 'model', 'selector', 'extra']) {
                     if (typeof saved[id] === 'string') $(id).value = saved[id];
                 }
+                if (typeof saved.rememberKey === 'boolean') $('rememberKey').checked = saved.rememberKey;
             }
             const key = GM_getValue(SECRET_KEY, '');
             if (typeof key === 'string' && key) {
@@ -382,20 +383,25 @@
             }
             return { endpoint: url.href, model, extra, key: $('apiKey').value.trim() };
         }
-        listen('saveApi', () => {
-            try {
-                config();
+        function persistConfig() {
                 const saved = {};
                 for (const id of ['endpoint', 'model', 'selector', 'extra']) saved[id] = $(id).value.trim();
+                saved.rememberKey = $('rememberKey').checked;
                 GM_setValue(CONFIG_KEY, saved);
                 if ($('rememberKey').checked) GM_setValue(SECRET_KEY, $('apiKey').value.trim());
                 else GM_deleteValue(SECRET_KEY);
+        }
+        listen('saveApi', () => {
+            try {
+                config(); persistConfig();
                 write('searchStatus', '设置已保存。自定义代理域名需在脚本头部添加对应 @connect 域名。');
             } catch (error) { write('searchStatus', error.message); }
         });
         listen('forgetKey', () => {
             try {
                 GM_deleteValue(SECRET_KEY); $('apiKey').value = ''; $('rememberKey').checked = false;
+                const saved = GM_getValue(CONFIG_KEY, {});
+                GM_setValue(CONFIG_KEY, { ...saved, rememberKey: false });
                 write('searchStatus', '密钥已清除。');
             } catch (_) { write('searchStatus', '清除失败，请检查油猴存储权限。'); }
         });
@@ -448,15 +454,35 @@
             if (questions.length > 100 || questions.some(q => q.length > 6000) || questions.join('\n===\n').length > 100000) {
                 throw Error('题量或题目长度超过上限：最多 100 题、每题 6000 字、总计 10 万字。请分批处理。');
             }
-            $('question').value = questions.join('\n===\n');
-            resetResults();
             const complete = expected > 0 && expected === questions.length;
+            if (expected > 0 && !complete) {
+                const error = Error(`页面标注 ${expected} 题，目前只读取到 ${questions.length} 题；请等页面加载完整后重试。`);
+                error.pageLoading = true; throw error;
+            }
+            const content = questions.join('\n===\n');
+            if ($('question').value !== content) resetResults();
+            $('question').value = content;
             write('searchStatus', `已读取 ${questions.length} 题` +
                 (complete ? '，与试卷标注总数一致。' : `；${expected ? `页面标注 ${expected} 题，数量不一致，请检查。` : '请核对是否完整。'}`) +
                 (hasImages ? '含图片题，本版仅提取文字，请手动补充图片信息。' : '') + ' 尚未发送给接口。');
         }
-        listen('readQuestions', () => {
-            try { readQuestions(); } catch (error) { write('searchStatus', error.message); }
+        async function loadQuestions(id) {
+            for (let attempt = 0; attempt < 10; attempt++) {
+                if (id !== runId || destroyed) throw Error('已停止');
+                try { readQuestions(); return; } catch (error) {
+                    if (!error.pageLoading && !error.message.startsWith('没有识别到题目')) throw error;
+                    if (attempt === 9) throw error;
+                    await waitForUI(1000);
+                }
+            }
+        }
+        listen('readQuestions', async () => {
+            if (running) return;
+            const id = ++runId; busy(true);
+            write('searchStatus', '正在读取页面题目…');
+            try { await loadQuestions(id); } catch (error) {
+                if (id === runId && !destroyed) write('searchStatus', error.message);
+            } finally { if (id === runId && !destroyed) busy(false); }
         });
         function busy(value) {
             running = value;
@@ -471,7 +497,7 @@
             cancelRequest?.();
             cancelPause?.();
             busy(false);
-            write('searchStatus', '已停止。已有结果保留；再次开始会重新分析当前列表。');
+            write('searchStatus', '已停止。已有结果保留，再次开始会接续未完成题目。');
         }
         listen('stopApi', stopApi);
         window.addEventListener('pagehide', stopApi, { signal: events.signal });
@@ -505,7 +531,9 @@
                         onload(response) {
                             if (response.status < 200 || response.status >= 300) {
                                 const hints = { 401: '密钥无效', 402: '余额不足', 403: '接口拒绝访问', 404: '接口地址或模型不存在', 429: '达到调用限制' };
-                                finish(Error(`HTTP ${response.status}：${hints[response.status] || '请求失败'}。已停止，不自动重试。`));
+                                const error = Error(`HTTP ${response.status}：${hints[response.status] || '请求失败'}。`);
+                                error.retryable = [408, 425, 429, 500, 502, 503, 504].includes(response.status);
+                                finish(error);
                                 return;
                             }
                             try {
@@ -514,16 +542,33 @@
                                 const choice = data.choices?.[0];
                                 if (choice?.message?.tool_calls?.length) throw Error('接口返回工具调用，需要额外的检索工具执行服务；当前未执行联网检索。');
                                 const text = choice?.message?.content;
-                                if (typeof text !== 'string' || !text.trim()) throw Error('接口未返回答案内容，请检查模型参数。');
+                                if (typeof text !== 'string' || !text.trim()) {
+                                    const error = Error('接口未返回答案内容。'); error.retryable = true; throw error;
+                                }
                                 finish(null, { text: text.slice(0, 12000), truncated: text.length > 12000 || choice.finish_reason !== 'stop' });
-                            } catch (error) { finish(Error(error instanceof SyntaxError ? '接口返回了非 JSON 数据。' : error.message)); }
+                            } catch (error) {
+                                if (error instanceof SyntaxError) {
+                                    const parseError = Error('接口返回了非 JSON 数据。'); parseError.retryable = true; finish(parseError);
+                                } else finish(error);
+                            }
                         },
-                        onerror() { finish(Error('连接失败，请检查网络、接口地址和油猴 @connect 权限。')); },
-                        ontimeout() { finish(Error('接口等待超过 120 秒，已停止，不自动重试。')); },
+                        onerror() { const error = Error('连接失败，请检查网络、接口地址和油猴 @connect 权限。'); error.retryable = true; finish(error); },
+                        ontimeout() { const error = Error('接口等待超过 120 秒。'); error.retryable = true; finish(error); },
                         onabort() { finish(Error('请求已中止。')); }
                     });
                 } catch (_) { finish(Error('请求无法启动，请检查油猴跨域请求权限。')); }
             });
+        }
+        async function requestWithRetry(cfg, question, id) {
+            // 同一题最多请求 4 次；只重试临时错误，等待可由“停止”立即取消。
+            for (let attempt = 0; attempt < 4; attempt++) {
+                if (id !== runId || destroyed) throw Error('已停止');
+                try { return await request(cfg, question); } catch (error) {
+                    if (id !== runId || destroyed) throw Error('已停止');
+                    if (!error.retryable || attempt === 3) throw error;
+                    await waitForUI(2000 * (2 ** attempt) + Math.floor(Math.random() * 500));
+                }
+            }
         }
         function decodeAnswer(question, response) {
             let answer;
@@ -555,10 +600,10 @@
             const pre = document.createElement('pre'); pre.textContent = `${result.question}\n\n${result.explanation}`;
             details.append(summary, pre); article.append(line, state, details); $('results').append(article);
         }
-        function waitForUI() {
+        function waitForUI(milliseconds = 100) {
             return new Promise(resolve => {
                 const finish = () => { cancelPause = null; resolve(); };
-                const timer = setTimeout(finish, 100);
+                const timer = setTimeout(finish, milliseconds);
                 cancelPause = () => { clearTimeout(timer); finish(); };
             });
         }
@@ -583,6 +628,9 @@
                 const result = results[index];
                 write('searchStatus', `正在填入 ${index + 1} / ${results.length} 题…`);
                 if (!result.valid) { ++skipped; continue; }
+                // 每道可填题目开始前间隔 3～5 秒，同一题内部的控件核验保持短等待。
+                await waitForUI(3000 + Math.floor(Math.random() * 2001));
+                if (id !== runId || destroyed) return;
                 try {
                     const first = locateQuestion(result);
                     const keys = first.labels.map(label => optionKey(label, first.type));
@@ -621,25 +669,33 @@
         listen('runApi', async () => {
             if (running) return;
             let cfg, questions;
+            const id = ++runId;
             try {
                 cfg = config();
                 if (!cfg.key) throw Error('请先在接口设置中填写 API 密钥。');
-                if (!$('question').value.trim()) readQuestions();
+                persistConfig();
+                busy(true);
+                if (!$('question').value.trim()) await loadQuestions(id);
+                if (id !== runId || destroyed) { cfg.key = ''; return; }
                 const raw = $('question').value;
                 questions = raw.split(/^\s*===\s*$/m).map(q => q.trim()).filter(Boolean);
                 if (!questions.length || questions.length > 100 || raw.length > 100000 || questions.some(q => q.length > 6000)) {
                     throw Error('请检查题目分隔：每题之间单独一行 ===，最多 100 题、每题 6000 字。');
                 }
-            } catch (error) { write('searchStatus', error.message); return; }
-            const id = ++runId;
-            busy(true);
-            resetResults();
-            let finished = 0;
+            } catch (error) {
+                if (cfg) cfg.key = '';
+                if (id === runId && !destroyed) { write('searchStatus', error.message); busy(false); }
+                return;
+            }
+            // 只接续完全相同列表的已完成前缀；题目变化时清空旧结果，避免串题。
+            const resume = results.length <= questions.length && results.every((result, i) => result.question === questions[i]);
+            if (!resume) resetResults();
+            let finished = results.length;
             try {
-                for (const question of questions) {
+                for (const question of questions.slice(finished)) {
                     if (id !== runId || destroyed) break;
                     write('searchStatus', `正在分析 ${finished + 1} / ${questions.length} 题，逐题调用接口…`);
-                    const answer = await request(cfg, question);
+                    const answer = await requestWithRetry(cfg, question, id);
                     if (id !== runId || destroyed) break;
                     const result = decodeAnswer(question, answer);
                     results.push(result); renderAnswer(result, finished);
