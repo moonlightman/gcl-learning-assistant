@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.1
+// @version      4.2
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
 // @match        https://gclu.gcl-power.com/*
 // @grant        GM_xmlhttpRequest
@@ -17,9 +17,13 @@
     'use strict';
     const KEY = '__gclContinueLearning__';
     const STORE = '__gclContinueLearningStatsV2__';
-    const PROJECT = '2071500330458742786';
-    const TASK = '2071500976477958146';
-    const EXPECTED = 63; // 已核对本课程的完整视频目录，不含考试。
+    function courseKey() {
+        if (!/^#\/playinfo(?:\?|$)/.test(location.hash)) return '';
+        const params = new URLSearchParams(location.hash.split('?')[1] || '');
+        const task = params.get('taskId');
+        return task ? `${params.get('projectid') || ''}:${task}` : '';
+    }
+    let activeCourse = courseKey(), directorySignature = '', directoryStreak = 0;
     window[KEY]?.destroy();
     let timer = null, pending = false, paused = false, completed = false;
     let completeStreak = 0, count = 0;
@@ -27,7 +31,7 @@
     let playbackStarted = false, learningDoneStreak = 0;
     try {
         const saved = JSON.parse(sessionStorage.getItem(STORE) || 'null');
-        if (saved?.task === TASK && Number.isSafeInteger(saved.count) && saved.count >= 0) {
+        if (saved?.task === activeCourse && Number.isSafeInteger(saved.count) && saved.count >= 0) {
             count = saved.count;
         }
     } catch (_) { /* 存储不可用时仅使用内存计数。 */ }
@@ -75,13 +79,13 @@
         .fill-state{font-size:12px;color:#acbdd6}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.1</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.2</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <label>不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
         <div class="label">已自动处理验证弹窗</div>
         <div><span class="number" id="count">0</span> 次</div>
         <div id="progressText" class="label">读取课程进度…</div>
-        <progress id="progress" value="0" max="63"></progress>
+        <progress id="progress" value="0" max="1"></progress>
         <div id="status" role="status">正在检测</div>
         <nav><button id="pause">暂停</button><button id="reset">计数清零</button></nav>
         <nav><button id="startLearning">自动开始学习</button><button id="stopLearning" disabled>停止续学</button></nav>
@@ -115,7 +119,7 @@
       <div class="overlay" id="notice" hidden>
         <section class="message" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
           <h2 id="doneTitle">当前任务已完成</h2>
-          <p>本课程 63 节视频均已显示完成。<br>课程考试需另行完成。</p>
+          <p id="completionText">当前课程目录中的视频均已显示完成。</p>
           <p id="summary"></p><button id="close">知道了</button>
         </section>
       </div>`;
@@ -124,7 +128,7 @@
     const write = (id, text) => { if ($(id).textContent !== text) $(id).textContent = text; };
     write('count', String(count));
     function save() {
-        try { sessionStorage.setItem(STORE, JSON.stringify({ task: TASK, count })); } catch (_) {}
+        try { sessionStorage.setItem(STORE, JSON.stringify({ task: activeCourse, count })); } catch (_) {}
     }
     function visible(el) {
         if (!el?.isConnected || !el.getClientRects().length) return false;
@@ -167,7 +171,7 @@
         if (document.querySelector('.yxtulcdsdk-review-fixed-content input:not(:disabled)')) {
             haltLearning('检测到正在作答的试卷，已停止自动续学。'); return;
         }
-        if (videos.length !== EXPECTED) { write('learningStatus', '等待完整课程目录…'); return; }
+        if (!videos.length) { write('learningStatus', '等待课程目录…'); return; }
         const current = videos.find(row => row.querySelector('.yxtulcdsdk-flex-1').textContent.trim() === learningTarget);
         if (!current) { haltLearning('课程目录发生变化，请重新点击自动开始学习。'); return; }
         if (videoDone(current)) {
@@ -205,12 +209,26 @@
             write('learningStatus', '视频已暂停；恢复播放后继续等待完成标记。');
         }
     }
+    function syncCourse() {
+        const key = courseKey();
+        if (key === activeCourse) return;
+        haltLearning('课程已切换，可点击自动开始学习。');
+        activeCourse = key;
+        pending = false; completed = false; paused = false;
+        completeStreak = 0; directoryStreak = 0; directorySignature = ''; count = 0;
+        try {
+            const saved = JSON.parse(sessionStorage.getItem(STORE) || 'null');
+            if (saved?.task === key && Number.isSafeInteger(saved.count) && saved.count >= 0) count = saved.count;
+        } catch (_) {}
+        write('count', String(count));
+        write('progressText', '读取课程进度…'); write('miniStatus', '');
+        $('progress').value = 0; $('progress').max = 1;
+        $('notice').hidden = true; $('pause').disabled = false; write('pause', '暂停');
+        start();
+    }
     function check() {
-        const params = new URLSearchParams(location.hash.split('?')[1] || '');
-        if (params.get('projectid') !== PROJECT || params.get('taskId') !== TASK) {
-            if (autoLearning) haltLearning('已离开指定课程，自动续学停止。');
-            pending = false;
-            completeStreak = 0;
+        syncCourse();
+        if (!activeCourse) {
             write('status', '视频检测待命 · 搜题功能可用');
             return;
         }
@@ -226,28 +244,29 @@
             button.click();
         }
 
-        const rows = [...document.querySelectorAll('.yxtulcdsdk-course-page__chapter-item')];
-        const videos = rows.filter(row => /^\d+\./.test(
-            row.querySelector('.yxtulcdsdk-flex-1')?.textContent.trim() || ''
-        ));
-        // 使用现场核对过的“完成对勾”图形路径，不能用颜色判断。
-        const done = videos.filter(row => row.querySelector(
-            '.yxtulcdsdk-course-page__chapter-lock path[d*="m3.636 4.012"]'
-        )).length;
-        const fullDirectory = rows.length === 64 && videos.length === EXPECTED &&
-            rows.some(row => row.textContent.includes('协鑫科技AI通识课正式考试'));
-        write('progressText', fullDirectory ? `视频完成：${done} / ${EXPECTED}` : '等待完整课程目录，暂不判断完成');
+        const videos = courseVideos();
+        const total = videos.length;
+        const done = videos.filter(videoDone).length;
+        // 目录变化时重新确认，避免将短暂加载的部分目录立即判为完成。
+        const signature = JSON.stringify(videos.map(row => row.querySelector('.yxtulcdsdk-flex-1').textContent.trim()));
+        directoryStreak = signature === directorySignature ? Math.min(directoryStreak + 1, 3) : 1;
+        directorySignature = signature;
+        const loading = [...document.querySelectorAll('[aria-busy="true"], .yxtf-loading-mask')].some(visible);
+        const ready = total > 0 && directoryStreak >= 3 && !loading;
+        write('progressText', total ? `视频完成：${done} / ${total}` : '等待课程视频目录，暂不判断完成');
+        $('progress').max = Math.max(1, total);
         $('progress').value = done;
-        write('miniStatus', `${done}/${EXPECTED}`);
+        write('miniStatus', total ? `${done}/${total}` : '等待目录');
         advanceLearning(videos);
         write('status', pending ? '已点击，等待验证弹窗关闭' : '运行中 · 每秒检查一次');
-        completeStreak = fullDirectory && done === EXPECTED && !button && !pending ? completeStreak + 1 : 0;
+        completeStreak = ready && done === total && !button && !pending ? completeStreak + 1 : 0;
         if (completeStreak >= 3) {
             completed = true;
             haltLearning('所有视频均已完成。');
             stop();
             write('status', '全部视频已完成，检测已停止');
             $('pause').disabled = true;
+            write('completionText', `当前课程目录中的 ${total} 节视频均已显示完成。如有考试或其他任务，请另行完成。`);
             write('summary', `累计自动处理验证弹窗 ${count} 次。`);
             $('notice').hidden = false;
             $('close').focus();
@@ -269,15 +288,15 @@
     setupPanel();
     const disposeApi = setupDeepSeek();
     $('startLearning').addEventListener('click', () => {
-        const params = new URLSearchParams(location.hash.split('?')[1] || '');
-        if (params.get('projectid') !== PROJECT || params.get('taskId') !== TASK) {
-            write('learningStatus', '请先打开协鑫科技 AI 工具通识课的课程播放页。'); return;
+        syncCourse();
+        if (!activeCourse) {
+            write('learningStatus', '请先打开课程播放页。'); return;
         }
         if (document.querySelector('.yxtulcdsdk-review-fixed-content input:not(:disabled)')) {
             write('learningStatus', '请先完成或退出当前考试，再开始自动学习。'); return;
         }
         const videos = courseVideos();
-        if (videos.length !== EXPECTED) { write('learningStatus', '完整课程目录尚未加载，请稍后重试。'); return; }
+        if (!videos.length) { write('learningStatus', '完整课程目录尚未加载，请稍后重试。'); return; }
         const next = videos.find(row => !videoDone(row));
         if (!next) { write('learningStatus', '所有视频均已完成。'); return; }
         paused = false; completed = false; autoLearning = true;
@@ -296,6 +315,7 @@
         count = 0; save(); write('count', '0');
     }, { signal: events.signal });
     $('close').addEventListener('click', () => { $('notice').hidden = true; }, { signal: events.signal });
+    window.addEventListener('hashchange', syncCourse, { signal: events.signal });
     window.addEventListener('pagehide', stop, { signal: events.signal });
     window.addEventListener('pageshow', start, { signal: events.signal });
     window[KEY] = { destroy() {
