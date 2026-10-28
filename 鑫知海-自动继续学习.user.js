@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.8
+// @version      4.9
 // @updateURL    https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @connect      api.deepseek.com
+// @connect      raw.githubusercontent.com
 // @noframes
 // @run-at       document-idle
 // ==/UserScript==
@@ -98,7 +99,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.8</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.9</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -139,6 +140,11 @@
         </details>
         </div>
         <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
+          <details open><summary>脚本更新</summary>
+            <div class="label">当前版本 4.9</div>
+            <div class="search-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer" style="color:#69dfb2">安装新版</a></div>
+            <div id="updateStatus" class="label" role="status">点击检查 GitHub 最新版本；安装时由油猴确认。</div>
+          </details>
           <label>浮窗不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
           <label>填答间隔（秒，0.5～50）<input id="fillInterval" type="number" min="0.5" max="50" step="0.5" value="4"></label>
           <div class="label">每道题开始填入前的等待时间，修改后自动保存。</div>
@@ -387,6 +393,7 @@
     }
     const events = new AbortController();
     setupPanel();
+    const disposeUpdater = setupUpdater();
     const disposeApi = setupDeepSeek();
     $('startLearning').addEventListener('click', () => {
         syncCourse();
@@ -424,9 +431,53 @@
     window.addEventListener('pageshow', start, { signal: events.signal });
     window.addEventListener('pageshow', startMeme, { signal: events.signal });
     window[KEY] = { destroy() {
-        stop(); stopMeme(); disposeApi(); events.abort(); host.remove(); delete window[KEY];
+        stop(); stopMeme(); disposeApi(); disposeUpdater(); events.abort(); host.remove(); delete window[KEY];
     } };
     start();
+
+    function setupUpdater() {
+        const current = '4.9';
+        const metadataURL = 'https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js';
+        const downloadURL = "https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js";
+        let handle = null, disposed = false, checking = false;
+        $('installUpdate').href = downloadURL;
+        function finish(message) {
+            if (disposed) return;
+            checking = false; handle = null; $('checkUpdate').disabled = false;
+            write('updateStatus', message);
+        }
+        $('checkUpdate').addEventListener('click', () => {
+            if (checking || disposed) return;
+            checking = true; $('checkUpdate').disabled = true; $('installUpdate').hidden = true;
+            write('updateStatus', '正在检查最新版本…');
+            try {
+                handle = GM_xmlhttpRequest({
+                    method: 'GET', url: metadataURL + '?t=' + Date.now(), anonymous: true, timeout: 20000,
+                    onload(response) {
+                        if (disposed) return;
+                        if (response.status !== 200) { finish(`检查失败：HTTP ${response.status}，请稍后重试。`); return; }
+                        const text = response.responseText || '';
+                        if (text.length > 20000 || !text.includes('// ==UserScript==') || !text.includes('// ==/UserScript==')) { finish('更新信息格式无效，未打开下载。'); return; }
+                        const latest = text.match(/^\/\/\s*@version\s+(\d+(?:\.\d+)*)\s*$/m)?.[1];
+                        if (!latest) { finish('未读取到有效版本号。'); return; }
+                        const a = latest.split('.').map(Number), b = current.split('.').map(Number);
+                        let newer = false;
+                        for (let i = 0; i < Math.max(a.length, b.length); i++) {
+                            if ((a[i] || 0) !== (b[i] || 0)) { newer = (a[i] || 0) > (b[i] || 0); break; }
+                        }
+                        if (newer) {
+                            $('installUpdate').hidden = false;
+                            finish(`发现新版 ${latest}，点击“安装新版”，在油猴页面确认后刷新培训网页。`);
+                        } else finish(`当前 ${current} 已是最新版本。`);
+                    },
+                    onerror() { finish('连接 GitHub 失败，请检查网络后重试。'); },
+                    ontimeout() { finish('检查更新超时，请稍后重试。'); },
+                    onabort() { finish('更新检查已停止。'); }
+                });
+            } catch (_) { finish('无法启动更新检查，请检查油猴跨域权限。'); }
+        }, { signal: events.signal });
+        return () => { disposed = true; handle?.abort(); handle = null; };
+    }
 
     function setupPanel() {
         const PANEL_KEY = 'gcl-panel-v4';
