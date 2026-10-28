@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.2
+// @version      4.3
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
 // @match        https://gclu.gcl-power.com/*
 // @grant        GM_xmlhttpRequest
@@ -17,6 +17,18 @@
     'use strict';
     const KEY = '__gclContinueLearning__';
     const STORE = '__gclContinueLearningStatsV2__';
+    const MEMES = [
+        '何意味', '这辈子有了', '嗯，有实力', '也真有实力啊', '拿下了',
+        '冒汗了', '笑嘻了', '哈人', '典中典', '蚌埠住了',
+        '演都不演了', '你说得对，但是……', '菜就多练',
+        '为什么要演奏春日影？', '你这个人满脑子都是自己呢',
+        '我分不清，我真的分不清啊', '这一定是坐忘道的阴谋',
+        '又中他人一计', '道爷我成了', '原神，启动！',
+        '哈基米', '曼波', '哈基山的基米美如水',
+        '114514', '你是一个一个一个……',
+        '大胃袋这一块', '味真足', '闹得嘛这一块',
+        '胃袋必死这一块', '冯了个福'
+    ];
     function courseKey() {
         if (!/^#\/playinfo(?:\?|$)/.test(location.hash)) return '';
         const params = new URLSearchParams(location.hash.split('?')[1] || '');
@@ -49,13 +61,15 @@
         header{font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:space-between;
           gap:8px;cursor:move;user-select:none;touch-action:none}
         #panelBody{margin-top:10px}#card.mini{width:210px;padding:10px 14px}
-        #card.mini #panelBody{display:none}#miniStatus{font-size:12px;color:#69dfb2}
+        #card.mini #panelBody,#card.mini footer{display:none}#miniStatus{font-size:12px;color:#69dfb2}
         .label{color:#acbdd6;font-size:12px}.number{font-size:34px;color:#69dfb2;font-weight:700}
         #status{margin:10px 0;color:#cad7eb;font-size:12px;overflow-wrap:anywhere}
         progress{width:100%;height:8px;accent-color:#52d6a2}
         nav{display:flex;gap:8px;margin-top:12px}
         button{border:0;border-radius:7px;padding:7px 12px;background:#304664;color:white;cursor:pointer}
         button:disabled{opacity:.5;cursor:default}
+        .tabs{margin:0 0 14px;border-bottom:1px solid #334763;padding-bottom:8px}
+        .tabs button[aria-selected=true]{background:#168b64}
         .overlay{position:fixed;inset:0;background:#0007;display:grid;place-items:center}
         .message{width:min(400px,90vw);padding:28px;background:white;color:#243348;
           border-radius:16px;box-shadow:0 12px 60px #0005;text-align:center}
@@ -77,11 +91,15 @@
         .answer-value{color:#69dfb2;font-size:18px;font-weight:700}
         #results details{border:0;margin:4px 0;padding:0}#results summary{font-size:12px;font-weight:400;color:#acbdd6}
         .fill-state{font-size:12px;color:#acbdd6}
+        footer{margin-top:15px;padding-top:10px;border-top:1px solid #334763;text-align:center;color:#acbdd6;font-size:12px}
+        #memeText{min-height:1.6em;color:#69dfb2;overflow-wrap:anywhere}
+        footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.2</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.3</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
-        <label>不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
+        <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
+        <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
         <div class="label">已自动处理验证弹窗</div>
         <div><span class="number" id="count">0</span> 次</div>
         <div id="progressText" class="label">读取课程进度…</div>
@@ -92,16 +110,6 @@
         <div id="learningStatus" class="label">从目录中的首个未完成视频开始，完成后接续下一节。</div>
         <details open>
           <summary>DeepSeek 题目助手</summary>
-          <details><summary>接口设置</summary>
-            <label>完整接口地址<input id="endpoint" value="https://api.deepseek.com/chat/completions" maxlength="500"></label>
-            <label>模型<input id="model" value="deepseek-flash" maxlength="100"></label>
-            <label>API 密钥<input id="apiKey" type="password" autocomplete="off" maxlength="500" placeholder="在这里填写 API Key"></label>
-            <label><input id="rememberKey" type="checkbox" checked> 记住 API 密钥（保存设置或开始分析后生效）</label>
-            <label>题目容器选择器（可选）<input id="selector" maxlength="300" placeholder="留空时自动识别"></label>
-            <label>附加请求参数 JSON（仅按接口提供方文档配置）<textarea id="extra" maxlength="4000" placeholder="{}"></textarea></label>
-            <div class="label">官方普通接口为模型解题，不自带网页检索。支持联网的代理接口须按其文档配置；模型声称“已搜索”不等于检索证据。</div>
-            <div class="search-actions"><button id="saveApi">保存设置</button><button id="forgetKey">清除密钥</button></div>
-          </details>
           <div class="search-actions"><button id="readQuestions">读取页面题目</button><button id="runApi">开始逐题分析</button><button id="stopApi" disabled>停止</button></div>
           <label><input id="autoFill" type="checkbox" checked> 全部分析完成后自动填入答案</label>
           <div class="label">自动填入仅匹配当前试卷的题干及选项，填完后请检查并自行提交。</div>
@@ -115,6 +123,24 @@
           <div id="results"></div>
         </details>
         </div>
+        <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
+          <label>浮窗不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
+          <label>填答间隔（秒，0.5～50）<input id="fillInterval" type="number" min="0.5" max="50" step="0.5" value="4"></label>
+          <div class="label">每道题开始填入前的等待时间，修改后自动保存。</div>
+          <details open><summary>DeepSeek 接口设置</summary>
+            <label>完整接口地址<input id="endpoint" value="https://api.deepseek.com/chat/completions" maxlength="500"></label>
+            <label>模型<input id="model" value="deepseek-flash" maxlength="100"></label>
+            <label>API 密钥<input id="apiKey" type="password" autocomplete="off" maxlength="500" placeholder="在这里填写 API Key"></label>
+            <label><input id="rememberKey" type="checkbox" checked> 记住 API 密钥（保存设置或开始分析后生效）</label>
+            <label>题目容器选择器（可选）<input id="selector" maxlength="300" placeholder="留空时自动识别"></label>
+            <label>附加请求参数 JSON（仅按接口提供方文档配置）<textarea id="extra" maxlength="4000" placeholder="{}"></textarea></label>
+            <div class="label">官方普通接口为模型解题，不自带网页检索。支持联网的代理接口须按其文档配置；模型声称“已搜索”不等于检索证据。</div>
+            <div class="search-actions"><button id="saveApi">保存设置</button><button id="forgetKey">清除密钥</button></div>
+            <div id="settingsStatus" class="label" role="status">设置保存在本机油猴存储中。</div>
+          </details>
+        </div>
+        </div>
+        <footer aria-label="随机梗与作者"><div id="memeText"></div><div class="author">@山川</div></footer>
       </section>
       <div class="overlay" id="notice" hidden>
         <section class="message" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
@@ -127,6 +153,15 @@
     const $ = id => root.getElementById(id);
     const write = (id, text) => { if ($(id).textContent !== text) $(id).textContent = text; };
     write('count', String(count));
+    let memeIndex = -1, memeTimer = null;
+    function rotateMeme() {
+        const choice = Math.floor(Math.random() * (MEMES.length - (memeIndex < 0 ? 0 : 1)));
+        memeIndex = memeIndex >= 0 && choice >= memeIndex ? choice + 1 : choice;
+        write('memeText', MEMES[memeIndex]);
+    }
+    function startMeme() { if (memeTimer === null) memeTimer = setInterval(rotateMeme, 10000); }
+    function stopMeme() { if (memeTimer !== null) { clearInterval(memeTimer); memeTimer = null; } }
+    rotateMeme(); startMeme();
     function save() {
         try { sessionStorage.setItem(STORE, JSON.stringify({ task: activeCourse, count })); } catch (_) {}
     }
@@ -317,9 +352,11 @@
     $('close').addEventListener('click', () => { $('notice').hidden = true; }, { signal: events.signal });
     window.addEventListener('hashchange', syncCourse, { signal: events.signal });
     window.addEventListener('pagehide', stop, { signal: events.signal });
+    window.addEventListener('pagehide', stopMeme, { signal: events.signal });
     window.addEventListener('pageshow', start, { signal: events.signal });
+    window.addEventListener('pageshow', startMeme, { signal: events.signal });
     window[KEY] = { destroy() {
-        stop(); disposeApi(); events.abort(); host.remove(); delete window[KEY];
+        stop(); stopMeme(); disposeApi(); events.abort(); host.remove(); delete window[KEY];
     } };
     start();
 
@@ -346,6 +383,14 @@
             if (Number.isFinite(settings.x) && Number.isFinite(settings.y)) place(settings.x, settings.y);
         }
         const on = (node, type, fn) => node.addEventListener(type, fn, { signal: events.signal });
+        function showPage(page) {
+            const settingsPage = page === 'settings';
+            $('homePage').hidden = settingsPage; $('settingsPage').hidden = !settingsPage;
+            $('homeTab').setAttribute('aria-selected', String(!settingsPage));
+            $('settingsTab').setAttribute('aria-selected', String(settingsPage));
+        }
+        on($('homeTab'), 'click', () => showPage('home'));
+        on($('settingsTab'), 'click', () => showPage('settings'));
         on($('minimize'), 'click', () => { settings.mini = !settings.mini; layout(); persist(); });
         on($('opacity'), 'input', () => { settings.opacity = Number($('opacity').value); layout(); });
         on($('opacity'), 'change', persist);
@@ -371,6 +416,16 @@
         const SECRET_KEY = 'gcl-deepseek-secret-v3';
         let running = false, cancelRequest = null, destroyed = false;
         let runId = 0, results = [], cancelPause = null;
+        const FILL_INTERVAL_KEY = 'gcl-fill-interval-seconds-v1';
+        const clampInterval = value => Math.max(0.5, Math.min(50, Number(value) || 4));
+        let fillInterval = 4;
+        try { fillInterval = clampInterval(GM_getValue(FILL_INTERVAL_KEY, 4)); } catch (_) {}
+        $('fillInterval').value = String(fillInterval);
+        $('fillInterval').addEventListener('change', () => {
+            fillInterval = clampInterval($('fillInterval').value);
+            $('fillInterval').value = String(fillInterval);
+            try { GM_setValue(FILL_INTERVAL_KEY, fillInterval); } catch (_) {}
+        }, { signal: events.signal });
         const listen = (id, fn) => $(id).addEventListener('click', fn, { signal: events.signal });
         try {
             const saved = GM_getValue(CONFIG_KEY, null);
@@ -385,7 +440,7 @@
                 $('apiKey').value = key;
                 $('rememberKey').checked = true;
             }
-        } catch (_) { write('searchStatus', '读取设置失败，请重新填写接口设置。'); }
+        } catch (_) { write('settingsStatus', '读取设置失败，请重新填写接口设置。'); }
 
         function config() {
             let url;
@@ -414,16 +469,16 @@
         listen('saveApi', () => {
             try {
                 config(); persistConfig();
-                write('searchStatus', '设置已保存。自定义代理域名需在脚本头部添加对应 @connect 域名。');
-            } catch (error) { write('searchStatus', error.message); }
+                write('settingsStatus', '设置已保存。自定义代理域名需在脚本头部添加对应 @connect 域名。');
+            } catch (error) { write('settingsStatus', error.message); }
         });
         listen('forgetKey', () => {
             try {
                 GM_deleteValue(SECRET_KEY); $('apiKey').value = ''; $('rememberKey').checked = false;
                 const saved = GM_getValue(CONFIG_KEY, {});
                 GM_setValue(CONFIG_KEY, { ...saved, rememberKey: false });
-                write('searchStatus', '密钥已清除。');
-            } catch (_) { write('searchStatus', '清除失败，请检查油猴存储权限。'); }
+                write('settingsStatus', '密钥已清除。');
+            } catch (_) { write('settingsStatus', '清除失败，请检查油猴存储权限。'); }
         });
 
         const clean = value => (value || '').replace(/\s+/g, ' ').trim();
@@ -648,8 +703,8 @@
                 const result = results[index];
                 write('searchStatus', `正在填入 ${index + 1} / ${results.length} 题…`);
                 if (!result.valid) { ++skipped; continue; }
-                // 每道可填题目开始前间隔 3～5 秒，同一题内部的控件核验保持短等待。
-                await waitForUI(3000 + Math.floor(Math.random() * 2001));
+                // 每道可填题目开始前使用设置中的间隔，同一题内部的控件核验保持短等待。
+                await waitForUI(fillInterval * 1000);
                 if (id !== runId || destroyed) return;
                 try {
                     const first = locateQuestion(result);
