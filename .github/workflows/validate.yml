@@ -1,0 +1,13 @@
+name: Validate userscripts
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: find . -name '*.user.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
