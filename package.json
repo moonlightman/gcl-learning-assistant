@@ -1,0 +1,11 @@
+{
+  "name": "gcl-learning-assistant-tests",
+  "version": "4.8.0",
+  "private": true,
+  "scripts": {
+    "test": "node tests/bank.cjs && node tests/search.cjs && node tests/bank-ui.cjs"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.14"
+  }
+}
