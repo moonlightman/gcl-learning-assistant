@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.4
+// @version      4.5
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
 // @match        https://gclu.gcl-power.com/*
 // @grant        GM_xmlhttpRequest
@@ -96,7 +96,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.4</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.5</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -182,8 +182,15 @@
         return null;
     }
     function courseVideos() {
-        return [...document.querySelectorAll('.yxtulcdsdk-course-page__chapter-item')].filter(row =>
-            /^\d+\./.test(row.querySelector('.yxtulcdsdk-flex-1')?.textContent.trim() || ''));
+        return [...document.querySelectorAll('.yxtulcdsdk-course-page__chapter-item')].filter(row => {
+            const title = row.querySelector('.yxtulcdsdk-flex-1')?.textContent.trim();
+            if (!title) return false;
+            // 按页面实际视频图标识别，不要求标题带编号；明确排除考试等其他类型。
+            if (row.querySelector('[id^="survey-video-id-"]')) return true;
+            if (row.querySelector('[id^="survey-"]')) return false;
+            // 兼容没有类型图标的旧版编号目录。
+            return /^\d+\./.test(title);
+        });
     }
     function videoDone(row) {
         return !!row.querySelector('.yxtulcdsdk-course-page__chapter-lock path[d*="m3.636 4.012"]');
