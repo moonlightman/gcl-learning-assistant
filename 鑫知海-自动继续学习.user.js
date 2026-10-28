@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.5
+// @version      4.6
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
 // @match        https://gclu.gcl-power.com/*
 // @grant        GM_xmlhttpRequest
@@ -96,7 +96,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.5</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.6</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -181,19 +181,57 @@
         }
         return null;
     }
+    const directoryText = node => (node?.textContent || '').replace(/\s+/g, ' ').trim();
     function courseVideos() {
+        // 主路径只依赖“视频 | 标题”的控件语义；不依赖业务 class 或 SVG 名称。
+        const markers = [...document.querySelectorAll('span, a, button, [role="treeitem"], [role="link"]')]
+            .filter(el => visible(el) && /^视频\s*[|｜]$/.test(directoryText(el)) &&
+                ![...el.children].some(child => /^视频\s*[|｜]$/.test(directoryText(child))));
+        const records = [];
+        for (const marker of markers) {
+            let control = marker.parentElement;
+            for (let depth = 0; control && depth < 3 && !/^视频\s*[|｜]\s*\S/.test(directoryText(control)); depth++) control = control.parentElement;
+            if (!control || directoryText(control).length > 600) continue;
+            // 必须处于培训大纲区域，排除播放器标题和正文中的同名文字。
+            let scope = control.parentElement, inOutline = false;
+            for (let depth = 0; scope && scope !== document.body && depth < 20; depth++, scope = scope.parentElement) {
+                if ([...scope.querySelectorAll('*')].some(el => !el.children.length && directoryText(el) === '培训大纲')) { inOutline = true; break; }
+            }
+            if (!inOutline) continue;
+            const title = directoryText(control).replace(/^视频\s*[|｜]\s*/, '');
+            if (!title || records.some(r => r.target === control)) continue;
+            const semanticTarget = control.closest('button, a, [role="treeitem"], [role="link"], [tabindex]');
+            const target = semanticTarget && semanticTarget !== document.body && directoryText(semanticTarget) === directoryText(control) ? semanticTarget : control;
+            const matching = [...document.querySelectorAll('.yxtulcdsdk-course-page__chapter-item')]
+                .filter(row => directoryText(row.querySelector('.yxtulcdsdk-flex-1')) === title);
+            records.push({ title, target, statusNode: target.parentElement?.parentElement, legacy: matching.length === 1 ? matching[0] : null, semantic: true });
+        }
+        if (records.length) return records;
+        // 备用路径保留旧版目录支持；类型不明的项目不计入视频。
         return [...document.querySelectorAll('.yxtulcdsdk-course-page__chapter-item')].filter(row => {
-            const title = row.querySelector('.yxtulcdsdk-flex-1')?.textContent.trim();
-            if (!title) return false;
-            // 按页面实际视频图标识别，不要求标题带编号；明确排除考试等其他类型。
+            if (!directoryText(row.querySelector('.yxtulcdsdk-flex-1'))) return false;
             if (row.querySelector('[id^="survey-video-id-"]')) return true;
             if (row.querySelector('[id^="survey-"]')) return false;
-            // 兼容没有类型图标的旧版编号目录。
-            return /^\d+\./.test(title);
-        });
+            return /^\d+\./.test(directoryText(row.querySelector('.yxtulcdsdk-flex-1')));
+        }).map(row => ({ title: directoryText(row.querySelector('.yxtulcdsdk-flex-1')), target: row, statusNode: row, legacy: row, semantic: false }));
     }
-    function videoDone(row) {
-        return !!row.querySelector('.yxtulcdsdk-course-page__chapter-lock path[d*="m3.636 4.012"]');
+    function lessonState(lesson) {
+        // 完成状态只接受平台明确标记；播放结束、绿色文字均不算完成。
+        const state = lesson.statusNode;
+        const labels = state ? [state, ...state.querySelectorAll('[aria-label], [title], [data-status]')]
+            .flatMap(el => [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-status')]).filter(Boolean) : [];
+        if (labels.some(text => /^(未完成|未学习|学习中|进行中|not[-_ ]?completed|in[-_ ]?progress)$/i.test(text.trim()))) return 'incomplete';
+        if (labels.some(text => /^(已完成|已学完|completed|finished)$/i.test(text.trim()))) return 'complete';
+        const legacy = lesson.legacy;
+        if (legacy?.querySelector('.yxtulcdsdk-course-page__chapter-lock path[d*="m3.636 4.012"]')) return 'complete';
+        if (legacy?.querySelector('.yxtulcdsdk-course-page__chapter-lock path[d*="M10 2a8 8"]')) return 'incomplete';
+        return 'unknown';
+    }
+    function videoDone(lesson) { return lessonState(lesson) === 'complete'; }
+    function lessonActive(lesson) {
+        if (['true', 'page', 'step'].includes(lesson.target.getAttribute('aria-current')) || lesson.target.getAttribute('aria-selected') === 'true') return true;
+        const active = document.querySelector('.ulcdsdk-coursetitle__active');
+        return !!active && directoryText(active).replace(/^视频\s*[|｜]\s*/, '') === lesson.title;
     }
     function haltLearning(message) {
         autoLearning = false; learningTarget = ''; learningDoneStreak = 0;
@@ -201,10 +239,10 @@
         write('learningStatus', message);
     }
     function selectLesson(row) {
-        const target = [...row.querySelectorAll('button')].find(b =>
+        const target = row.semantic ? row.target : [...row.target.querySelectorAll('button')].find(b =>
             /^(开始学习|继续学习)$/.test(b.textContent.trim()) && !b.disabled);
         if (!target) { haltLearning('未找到可用的开始学习按钮，请手动打开该章节。'); return; }
-        learningTarget = row.querySelector('.yxtulcdsdk-flex-1').textContent.trim();
+        learningTarget = row.title;
         learningAt = Date.now(); playAttempted = false; playbackStarted = false; learningDoneStreak = 0;
         write('learningStatus', `正在打开：${learningTarget}`);
         target.click();
@@ -216,7 +254,7 @@
             haltLearning('检测到正在作答的试卷，已停止自动续学。'); return;
         }
         if (!videos.length) { write('learningStatus', '等待课程目录…'); return; }
-        const current = videos.find(row => row.querySelector('.yxtulcdsdk-flex-1').textContent.trim() === learningTarget);
+        const current = videos.find(row => row.title === learningTarget);
         if (!current) { haltLearning('课程目录发生变化，请重新点击自动开始学习。'); return; }
         if (videoDone(current)) {
             if (++learningDoneStreak < 2) return;
@@ -225,11 +263,13 @@
             return;
         }
         learningDoneStreak = 0;
-        const active = document.querySelector('.ulcdsdk-coursetitle__active');
-        const activeTitle = active?.textContent.replace(/^\s*视频\s*\|\s*/, '').trim();
-        if (activeTitle !== learningTarget) {
+        if (!lessonActive(current)) {
             if (Date.now() - learningAt > 15000) haltLearning('未能确认章节切换，请手动打开后重试。');
             return;
+        }
+        const startButtons = [...document.querySelectorAll('button')].filter(button => visible(button) && !button.disabled && /^(开始学习|继续学习)$/.test(directoryText(button)));
+        if (!playAttempted && startButtons.length === 1) {
+            playAttempted = true; startButtons[0].click(); return;
         }
         const video = document.querySelector('#videocontainer-vjs video, video#videocontainer-vjs, video');
         if (video?.error) { haltLearning('视频播放出错，请处理播放器提示后重试。'); return; }
@@ -290,14 +330,16 @@
 
         const videos = courseVideos();
         const total = videos.length;
+        const unknown = videos.filter(row => lessonState(row) === 'unknown').length;
+        if (autoLearning && (unknown || new Set(videos.map(row => row.title)).size !== total)) haltLearning('目录状态或章节名称无法唯一确认，已停止自动续学。');
         const done = videos.filter(videoDone).length;
         // 目录变化时重新确认，避免将短暂加载的部分目录立即判为完成。
-        const signature = JSON.stringify(videos.map(row => row.querySelector('.yxtulcdsdk-flex-1').textContent.trim()));
+        const signature = JSON.stringify(videos.map(row => row.title));
         directoryStreak = signature === directorySignature ? Math.min(directoryStreak + 1, 3) : 1;
         directorySignature = signature;
         const loading = [...document.querySelectorAll('[aria-busy="true"], .yxtf-loading-mask')].some(visible);
         const ready = total > 0 && directoryStreak >= 3 && !loading;
-        write('progressText', total ? `视频完成：${done} / ${total}` : '等待课程视频目录，暂不判断完成');
+        write('progressText', total ? `视频完成：${done} / ${total}${unknown ? `（${unknown} 节状态待确认）` : ''}` : '等待课程视频目录，暂不判断完成');
         $('progress').max = Math.max(1, total);
         $('progress').value = done;
         write('miniStatus', total ? `${done}/${total}` : '等待目录');
@@ -341,6 +383,8 @@
         }
         const videos = courseVideos();
         if (!videos.length) { write('learningStatus', '完整课程目录尚未加载，请稍后重试。'); return; }
+        if (new Set(videos.map(row => row.title)).size !== videos.length) { write('learningStatus', '目录有重名视频，无法安全确认章节，请手动选择。'); return; }
+        if (videos.some(row => lessonState(row) === 'unknown')) { write('learningStatus', '已读取目录，但部分完成状态无法确认，请手动学习或提供状态结构。'); return; }
         const next = videos.find(row => !videoDone(row));
         if (!next) { write('learningStatus', '所有视频均已完成。'); return; }
         paused = false; completed = false; autoLearning = true;
