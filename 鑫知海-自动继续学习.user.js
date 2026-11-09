@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.9
+// @version      4.10
 // @updateURL    https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
@@ -99,7 +99,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.9</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.10</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -124,24 +124,14 @@
           <div id="searchStatus" role="status">尚未调用接口。读取题目不会发送网络请求。</div>
           <div class="search-actions"><button id="fillAnswers" disabled>填入已分析答案</button></div>
           <div id="results"></div>
-          <details><summary>本地考试题库与历史</summary>
-            <label>考试分组（同一课程下不同考试请使用不同名称）<input id="examGroup" maxlength="200"></label>
-            <div class="label">分析前确认题单，填入前确认答案，考后确认成绩及逐题反馈。历史自动保存在本机油猴存储中，不上传 GitHub。通过考试不等于每题正确；多选错题只排除整个组合。</div>
-            <div class="search-actions"><button id="snapshotBank">保存本次实际作答</button><button id="reviewBank">读取考后反馈</button><button id="exportBank">导出题库备份</button></div>
-            <div id="bankStatus" class="label">题库已启用；分析草稿与实际作答自动保存，已核实答案优先复用。</div>
-            <div id="bankReviewPanel" hidden>
-              <label>确认本次考试结果<select id="examOutcome"><option value="unverified">成绩未核实</option><option value="passed">考试通过</option><option value="failed">考试未通过</option></select></label>
-              <div class="label">请核对是否属于下方这一次作答。仅把明确反馈的题设为答对或答错；只显示部分错题时，其余题继续保留未核实。</div>
-              <label><input id="allWrongShown" type="checkbox"> 我已核实这次作答的全部错题均已标错，试卷全部作答，其他题平台均判全对（否则不要勾选）</label>
-              <div id="bankReview" style="max-height:350px;overflow:auto"></div>
-              <button id="confirmReview">确认归档成绩与错题</button>
-            </div>
-          </details>
+          <label>考试名称<input id="examGroup" maxlength="200"></label>
+          <div class="search-actions"><button id="downloadQuestions">读取题目并下载 Excel</button></div>
+          <div id="exportStatus" class="label">下载当前页面题目、已选答案及本次分析答案（未核实），不保存历史题库。图片仅标记，需人工核对。</div>
         </details>
         </div>
         <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
           <details open><summary>脚本更新</summary>
-            <div class="label">当前版本 4.9</div>
+            <div class="label">当前版本 4.10</div>
             <div class="search-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer" style="color:#69dfb2">安装新版</a></div>
             <div id="updateStatus" class="label" role="status">点击检查 GitHub 最新版本；安装时由油猴确认。</div>
           </details>
@@ -192,6 +182,31 @@
         if (!el?.isConnected || !el.getClientRects().length) return false;
         const s = getComputedStyle(el);
         return s.display !== 'none' && s.visibility === 'visible';
+    }
+    let takeoverAt = 0;
+    let takeoverSeen = new WeakSet();
+    function recoverPlaybackPrompt() {
+        const dialogs = [...document.querySelectorAll('[role="dialog"], .yxtf-dialog, .el-dialog, .el-message-box')];
+        for (const dialog of dialogs) {
+            const text = (dialog.textContent || '').replace(/\s+/g, '');
+            if (!visible(dialog) || !text.includes('您已经打开过该课程') || !text.includes('确认是否仍在此页面学习')) continue;
+            if (takeoverSeen.has(dialog)) return true;
+            const buttons = [...dialog.querySelectorAll('button')].filter(b => visible(b) && !b.disabled && b.textContent.trim() === '确定');
+            if (buttons.length !== 1) { write('status', '检测到播放冲突，请手动确认当前页面。'); return true; }
+            if (takeoverAt && Date.now() - takeoverAt < 120000) {
+                haltLearning('多个页面反复争用播放，请关闭其他课程播放页，再手动确认。');
+                write('status', '播放冲突再次出现，请关闭其他播放页后手动确认。');
+                return true;
+            }
+            takeoverSeen.add(dialog); takeoverAt = Date.now(); buttons[0].click();
+            const video = [...document.querySelectorAll('video')].find(visible);
+            if (video?.paused && !video.ended) video.play()?.catch(() => write('status', '已确认当前播放页，请点击播放器恢复播放。'));
+            write('status', '已确认在当前页面学习；请保持仅一个课程播放页。');
+            return true;
+        }
+        takeoverSeen = new WeakSet();
+        takeoverSeen = new WeakSet();
+        return false;
     }
     function findPrompt() {
         for (const dialog of document.querySelectorAll('.yxtf-dialog[role="dialog"]')) {
@@ -337,6 +352,7 @@
             write('status', '视频检测待命 · 搜题功能可用');
             return;
         }
+        if (recoverPlaybackPrompt()) return;
         const button = findPrompt();
         if (pending && !button) {
             count = Math.min(Number.MAX_SAFE_INTEGER, count + 1);
@@ -436,7 +452,7 @@
     start();
 
     function setupUpdater() {
-        const current = '4.9';
+        const current = '4.10';
         const metadataURL = 'https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js';
         const downloadURL = "https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js";
         let handle = null, disposed = false, checking = false;
@@ -531,41 +547,41 @@
     }
 
     // 纯数据层：按题型、完整题干及选项内容识别；不使用题号和选项字母作永久身份。
-    function bankQuestion(text) {
-        const lines = text.trim().split('\n');
-        const head = lines.shift().match(/^(单选题|多选题|判断题)\s*(?:\d+[.．、]?\s*)?(.+)$/);
-        if (!head) return null;
-        const norm = s => s.replace(/\s+/g, ' ').trim();
-        const choices = lines.map(line => {
-            const m = norm(line).match(/^([A-Z])[.．、]\s*(.+)$/);
-            if (m) return { label: m[1], text: norm(m[2]) };
-            const t = norm(line); return head[1] === '判断题' && ['正确', '错误'].includes(t) ? { label: t, text: t } : null;
-        });
-        if (!choices.length || choices.some(c => !c) || new Set(choices.map(c => c.text)).size !== choices.length || new Set(choices.map(c => c.label)).size !== choices.length) return null;
-        return { type: head[1], stem: norm(head[2]), choices,
-            key: JSON.stringify([head[1], norm(head[2]), choices.map(c => c.text).sort()]) };
+    // A minimal OOXML workbook in a stored ZIP, with every cell explicitly text.
+    // No external dependency, formula evaluation, macros or network request.
+    function makeExcel(rows) {
+        const xml = value => String(value ?? '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+        const sheet = '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="2" width="20" customWidth="1"/><col min="3" max="3" width="80" customWidth="1"/><col min="4" max="8" width="32" customWidth="1"/></cols><sheetData>' + rows.map((row, i) => `<row r="${i + 1}">` + row.map((value, j) => `<c r="${String.fromCharCode(65 + j)}${i + 1}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`).join('') + '</row>').join('') + '</sheetData></worksheet>';
+        const files = {
+            '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+            '_rels/.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+            'xl/workbook.xml': '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="题目答案" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            'xl/_rels/workbook.xml.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+            'xl/worksheets/sheet1.xml': sheet
+        };
+        const encoder = new TextEncoder(), parts = [], directory = [];
+        let offset = 0, directorySize = 0;
+        const header = size => { const bytes = new Uint8Array(size); return { bytes, view: new DataView(bytes.buffer) }; };
+        for (const [path, content] of Object.entries(files)) {
+            const name = encoder.encode(path), data = encoder.encode(content);
+            let crc = 0xffffffff;
+            for (const byte of data) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
+            crc = (crc ^ 0xffffffff) >>> 0;
+            const local = header(30), v = local.view;
+            v.setUint32(0, 0x04034b50, true); v.setUint16(4, 20, true); v.setUint32(14, crc, true);
+            v.setUint32(18, data.length, true); v.setUint32(22, data.length, true); v.setUint16(26, name.length, true);
+            parts.push(local.bytes, name, data);
+            const central = header(46), c = central.view;
+            c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true);
+            c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+            c.setUint16(28, name.length, true); c.setUint32(42, offset, true);
+            directory.push(central.bytes, name); directorySize += 46 + name.length; offset += 30 + name.length + data.length;
+        }
+        const end = header(22), e = end.view;
+        e.setUint32(0, 0x06054b50, true); e.setUint16(8, directory.length / 2, true); e.setUint16(10, directory.length / 2, true);
+        e.setUint32(12, directorySize, true); e.setUint32(16, offset, true);
+        return new Blob([...parts, ...directory, end.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     }
-    function bankAnswer(q, labels) {
-        if (!q || !Array.isArray(labels) || !labels.length || new Set(labels).size !== labels.length || (q.type !== '多选题' && labels.length !== 1)) return null;
-        const texts = labels.map(label => q.choices.find(c => c.label === label)?.text);
-        return texts.some(t => !t) ? null : JSON.stringify(texts.sort());
-    }
-    function bankLabels(q, answer) {
-        try {
-            const texts = JSON.parse(answer);
-            if (!Array.isArray(texts) || !texts.length) return null;
-            const labels = texts.map(text => q.choices.find(c => c.text === text)?.label);
-            return labels.some(l => !l) || bankAnswer(q, labels) !== answer ? null : labels;
-        } catch (_) { return null; }
-    }
-    function bankEvidence(exam, q) {
-        const records = exam?.evidence.filter(e => e.key === q.key) || [];
-        const right = [...new Set(records.filter(e => e.verdict === 'correct').map(e => e.answer))];
-        const wrong = [...new Set(records.filter(e => e.verdict === 'wrong').map(e => e.answer))];
-        const conflict = right.length > 1 || right.some(a => wrong.includes(a));
-        return { right: conflict ? null : right[0] || null, wrong, conflict };
-    }
-
     function setupDeepSeek() {
         const CONFIG_KEY = 'gcl-deepseek-config-v3';
         const SECRET_KEY = 'gcl-deepseek-secret-v3';
@@ -640,15 +656,7 @@
         });
 
         const clean = value => (value || '').replace(/\s+/g, ' ').trim();
-        const BANK_KEY = 'gcl-exam-bank-v1';
-        let bank = { schema: 1, exams: [] }, bankHealthy = true, runExam = '';
-        try {
-            const saved = GM_getValue(BANK_KEY, null);
-            if (saved) {
-                if (saved.schema !== 1 || !Array.isArray(saved.exams) || saved.exams.some(e => !e || !Array.isArray(e.attempts) || !Array.isArray(e.evidence) || !Array.isArray(e.drafts))) throw Error('题库格式异常');
-                bank = saved;
-            }
-        } catch (_) { bankHealthy = false; write('bankStatus', '本地题库读取失败，已禁用保存以保护原数据。'); }
+        let runExam = '';
         const panel = document.querySelector('.yxtulcdsdk-review-fixed-content');
         const defaultExamTitle = clean(panel?.firstElementChild?.firstElementChild?.textContent) || document.title.replace(/\s*-\s*鑫知海$/, '');
         $('examGroup').value = defaultExamTitle;
@@ -663,136 +671,34 @@
             if (!title || !courseKey()) throw Error('请在课程考试页填写考试分组名称。');
             return JSON.stringify([courseKey(), title]);
         }
-        function currentExam(create = false) {
-            const id = examIdentity();
-            let exam = bank.exams.find(e => e.id === id);
-            if (!exam && create) { exam = { id, title: $('examGroup').value.trim(), drafts: [], attempts: [], evidence: [] }; bank.exams.push(exam); }
-            return exam;
-        }
-        function persistBank(message = '本地题库已保存。') {
-            if (!bankHealthy) throw Error('题库不可用，未覆盖原数据。');
-            try {
-                GM_setValue(BANK_KEY, bank);
-                const attempts = bank.exams.reduce((n, e) => n + e.attempts.length, 0);
-                write('bankStatus', `${message} ${bank.exams.length} 个考试，${attempts} 次作答记录。`);
-            } catch (_) { write('bankStatus', '本地保存失败，请导出备份；本次数据尚在内存中。'); throw Error('本地题库保存失败'); }
-        }
-        function saveDraft() {
-            const exam = currentExam(true);
-            if (runExam && runExam !== exam.id) throw Error('考试分组发生变化，请重新分析。');
-            const key = results.map(r => r.question).join('\n===\n');
-            let draft = exam.drafts.find(d => d.key === key);
-            if (!draft) { draft = { key, at: new Date().toISOString(), results: [] }; exam.drafts.push(draft); }
-            draft.results = results.map(r => ({ question: r.question, values: r.values, valid: r.valid, explanation: r.explanation, source: r.fromBank ? 'confirmed-bank' : 'model' }));
-            persistBank('分析草稿已静默保存（尚未证实正确）。');
-        }
-        function captureAttempt() {
-            const page = examRows();
-            if (!page.rows.length || (page.expected && page.expected !== page.rows.length)) throw Error('试卷未完整读取，不能保存实际作答。');
-            const exam = currentExam(true);
-            const entries = page.rows.map(row => ({ question: row.text, values: row.labels.filter(l => l.querySelector('input')?.checked).map(l => optionKey(l, row.type)), hasImages: row.hasImages }));
-            const signature = JSON.stringify(entries);
-            const last = exam.attempts.at(-1);
-            if (last && !last.reviewedAt && last.signature === signature) return last;
-            const attempt = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, at: new Date().toISOString(), signature, entries, outcome: 'unverified' };
-            exam.attempts.push(attempt); persistBank('当前实际选择已静默保存，等待考后确认。');
-            return attempt;
-        }
         function askFill() {
-            if (examIdentity() !== runExam) throw Error('考试分组已改变，请重新分析。');
-            return window.confirm(`确认填入当前考试“${$('examGroup').value.trim()}”的 ${results.filter(r => r.valid).length} 道答案？\n题库证实答案可复用；新分析仍待核对。不会提交试卷。`);
+            if (examIdentity() !== runExam) throw Error('考试名称已改变，请重新分析。');
+            return window.confirm(`确认填入当前考试的 ${results.filter(r => r.valid).length} 道答案？\n分析答案尚未核实，请自行检查。不会提交试卷。`);
         }
-        function memoryFor(question) {
-            if (examRows().rows.some(row => row.text === question && row.hasImages)) return { q: null, right: null, wrong: [], conflict: false };
-            const q = bankQuestion(question), exam = currentExam();
-            return q ? { q, ...bankEvidence(exam, q) } : { q: null, right: null, wrong: [], conflict: false };
-        }
-        function readFeedback(row) {
-            // 仅识别页面明确的反馈文案；不从颜色、总分或“没出现在错题列表”推断。
-            const text = clean(row.row.innerText);
-            const correct = text.match(/(?:正确答案|参考答案|标准答案)\s*[:：]\s*((?:[A-Z](?:\s*[,，、\s]\s*[A-Z])*)|正确|错误)(?=\s|$|[。；;])/);
-            const verdict = /(?:回答|作答|答题|判定)\s*[:：]?\s*(?:错误|不正确)|回答错误|答错了/.test(text) ? 'wrong'
-                : /(?:回答|作答|答题|判定)\s*[:：]?\s*正确|回答正确|答对了/.test(text) ? 'correct' : 'unknown';
-            return { verdict, correct: correct ? (['正确', '错误'].includes(correct[1]) ? [correct[1]] : correct[1].match(/[A-Z]/g)) : [], excerpt: correct?.[0] || (verdict !== 'unknown' ? `页面明确标记：${verdict}` : '') };
-        }
-        let reviewAttempt = null, reviewExam = null, reviewRows = [];
-        listen('reviewBank', () => {
+        listen('downloadQuestions', () => {
             try {
-                if (running) throw Error('请先停止分析或填入。');
-                const exam = currentExam();
-                const attempt = exam?.attempts.at(-1);
-                if (!attempt || attempt.reviewedAt) throw Error('最新作答尚未保存或已归档，请先保存本次实际作答。');
-                reviewAttempt = attempt; reviewExam = exam.id; reviewRows = [];
-                const pageRows = examRows().rows;
-                $('bankReview').replaceChildren();
-                $('allWrongShown').checked = false; $('examOutcome').value = 'unverified';
-                for (const [i, entry] of attempt.entries.entries()) {
-                    const q = bankQuestion(entry.question);
-                    const matches = pageRows.filter(row => bankQuestion(row.text)?.key === q?.key);
-                    const feedback = matches.length === 1 && q && !entry.hasImages ? readFeedback(matches[0]) : { verdict: 'unknown', correct: [] };
-                    const matchedQ = matches.length === 1 ? bankQuestion(matches[0].text) : null;
-                    const correctAnswer = matchedQ ? bankAnswer(matchedQ, feedback.correct) : null;
-                    const correctLabels = q && correctAnswer ? bankLabels(q, correctAnswer) : null;
-                    const item = document.createElement('article');
-                    const title = document.createElement('div'); title.textContent = `${i + 1}. ${entry.question.split('\n')[0]}（本次选择：${entry.values.join('、') || '未选'}）`;
-                    const verdict = document.createElement('select');
-                    for (const [value, label] of [['unknown', '未核实'], ['correct', '已证实本次答对'], ['wrong', '已证实本次答错']]) { const opt = document.createElement('option'); opt.value = value; opt.textContent = label; verdict.append(opt); }
-                    // 同一道题可能在结果页展示不同的选中状态；只使用原作答快照作答对/错绑定。
-                    verdict.value = correctAnswer && q && bankAnswer(q, entry.values) ? (bankAnswer(q, entry.values) === correctAnswer ? 'correct' : 'wrong') : feedback.verdict;
-                    const correct = document.createElement('input'); correct.placeholder = '平台公布的正确答案（可选，如 A,C；无依据留空）'; correct.value = correctLabels?.join(',') || '';
-                    const evidence = document.createElement('div'); evidence.className = 'label'; evidence.textContent = feedback.excerpt || '未识别到明确反馈，请核对后手动选择；不能凭考试通过认定每题答对。';
-                    item.append(title, verdict, correct, evidence); $('bankReview').append(item);
-                    reviewRows.push({ entry, verdict, correct });
-                }
-                $('bankReviewPanel').hidden = false;
-                write('bankStatus', `已载入 ${attempt.entries.length} 道原作答。请核对本次记录时间 ${attempt.at}，再确认成绩和逐题反馈。`);
-            } catch (error) { write('bankStatus', error.message); }
+                if (running) throw Error('请先停止分析或填入，再下载当前答案。');
+                const page = examRows();
+                readQuestions();
+                const questions = $('question').value.split(/^\s*===\s*$/m).map(q => q.trim()).filter(Boolean);
+                const rows = [['序号', '考试名称', '题目及选项', '页面已选答案', '本次分析答案（未核实）', '分析说明', '来源', '图片提示']];
+                questions.forEach((question, i) => {
+                    const pageRow = page.rows.find(row => row.text === question);
+                    const result = results.find(r => r.question === question);
+                    rows.push([String(i + 1), $('examGroup').value, question,
+                        pageRow ? pageRow.labels.filter(l => l.querySelector('input')?.checked).map(l => optionKey(l, pageRow.type)).join('、') : '',
+                        result?.display || '', result?.explanation || '',
+                        (result?.sources || []).map(source => source.url).join('\n'),
+                        pageRow?.hasImages ? '含图片，仅导出文字，请人工核对' : '']);
+                });
+                const blob = makeExcel(rows), url = URL.createObjectURL(blob), link = document.createElement('a');
+                link.href = url;
+                link.download = `鑫知海-${($('examGroup').value || '题目答案').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 80)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+                document.body.append(link); link.click(); link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+                write('exportStatus', `已下载 ${questions.length} 题。${page.expected && page.expected !== questions.length ? `页面标注 ${page.expected} 题，当前导出不完整，请加载全部题目后重试。` : '请核对题目是否完整；分析答案未核实。'}`);
+            } catch (error) { write('exportStatus', error.message); }
         });
-        listen('confirmReview', () => {
-            try {
-                if (examIdentity() !== reviewExam || !reviewAttempt || reviewAttempt.reviewedAt) throw Error('归档记录已变化，请重新读取。');
-                const exam = currentExam();
-                const evidence = [];
-                const details = [];
-                if ($('allWrongShown').checked && !$('examOutcome').value.match(/^(passed|failed)$/)) throw Error('推定其余题正确前，请先确认考试结果。');
-                if ($('allWrongShown').checked && !reviewRows.some(row => row.verdict.value === 'wrong')) throw Error('请先明确标记全部错题；无错题证据时不要勾选完整错题清单。');
-                for (const row of reviewRows) {
-                    const verdict = row.verdict.value === 'unknown' && $('allWrongShown').checked ? 'correct' : row.verdict.value;
-                    const q = bankQuestion(row.entry.question);
-                    const labels = row.correct.value.trim() ? row.correct.value.trim().toUpperCase().split(/[,，、\s]+/).filter(Boolean) : [];
-                    const answer = q ? bankAnswer(q, row.entry.values) : null;
-                    const correct = labels.length && q ? bankAnswer(q, labels) : null;
-                    if (labels.length && !correct) throw Error('正确答案格式或选项无效，请检查。');
-                    if ((!q || row.entry.hasImages) && (labels.length || verdict !== 'unknown')) throw Error('图片题或结构不明题只能保留为未核实，不能加入复用答案。');
-                    if (verdict !== 'unknown' && !answer) throw Error('未选择答案的题不能记为本次答对或答错。');
-                    if (correct && ((verdict === 'correct' && correct !== answer) || (verdict === 'wrong' && correct === answer))) throw Error('逐题判定与公布答案冲突，请核对。');
-                    const base = { key: q?.key, attempt: reviewAttempt.id, at: new Date().toISOString(), source: 'user-confirmed-review' };
-                    if (q && answer && verdict !== 'unknown') evidence.push({ ...base, answer, verdict, source: row.verdict.value === 'unknown' ? 'user-confirmed-complete-wrong-list' : base.source });
-                    if (correct) evidence.push({ ...base, answer: correct, verdict: 'correct', source: 'user-confirmed-official-answer' });
-                    details.push({ question: row.entry.question, verdict, official: labels });
-                }
-                if (!window.confirm(`确认把本次考试记为“${$('examOutcome').selectedOptions[0].textContent}”，并保存 ${evidence.length} 条已核实证据？\n未核实题目只保留历史，不当作正确答案。`)) return;
-                const old = JSON.stringify(bank);
-                reviewAttempt.outcome = $('examOutcome').value; reviewAttempt.reviewedAt = new Date().toISOString(); reviewAttempt.review = details;
-                exam.evidence.push(...evidence);
-                try { persistBank('本次成绩及逐题反馈已归档。'); } catch (error) { bank = JSON.parse(old); throw error; }
-                $('bankReviewPanel').hidden = true; reviewAttempt = null;
-                resetResults();
-            } catch (error) { write('bankStatus', error.message); }
-        });
-        listen('snapshotBank', () => { try { if (window.confirm('确认保存当前试卷实际选中的答案，供考后核对？不会提交考试。')) captureAttempt(); } catch (error) { write('bankStatus', error.message); } });
-        listen('exportBank', () => {
-            const blob = new Blob([JSON.stringify(bank, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob), link = document.createElement('a');
-            link.href = url; link.download = `鑫知海题库备份-${new Date().toISOString().slice(0, 10)}.json`; link.click();
-            setTimeout(() => URL.revokeObjectURL(url), 10000);
-        });
-        // 用户手动提交时只读取实际勾选，既不触发也不阻止网站提交。
-        document.addEventListener('click', event => {
-            const button = event.target.closest?.('button');
-            if (!button || !/^提交考试$/.test(clean(button.textContent))) return;
-            try { captureAttempt(); } catch (error) { write('bankStatus', error.message); }
-        }, { capture: true, signal: events.signal });
 
         function examRows() {
             const rows = [];
@@ -874,7 +780,7 @@
         function busy(value) {
             running = value;
             for (const id of ['runApi', 'readQuestions', 'clearQuestion', 'saveApi', 'forgetKey',
-                'endpoint', 'model', 'apiKey', 'rememberKey', 'selector', 'extra', 'question', 'autoFill', 'webSearch', 'examGroup', 'snapshotBank', 'reviewBank', 'confirmReview', 'examOutcome']) $(id).disabled = value;
+                'endpoint', 'model', 'apiKey', 'rememberKey', 'selector', 'extra', 'question', 'autoFill', 'webSearch', 'examGroup', 'downloadQuestions']) $(id).disabled = value;
             $('stopApi').disabled = !value;
             $('fillAnswers').disabled = value || !results.some(r => r.valid);
         }
@@ -1010,7 +916,7 @@
             const pre = document.createElement('pre'); pre.textContent = `${result.question}\n\n${result.explanation}`;
             details.append(summary, pre); article.append(line, state, details);
             const searchState = document.createElement('div'); searchState.className = 'fill-state';
-            searchState.textContent = result.fromBank ? '本地题库：已核实答案' : result.searched
+            searchState.textContent = result.searched
                 ? (result.sources.length ? `已联网检索：${result.sources.length} 条来源（请核对是否支持答案）` : '已执行检索但无可用结果，未联网核验')
                 : '未联网检索';
             article.append(searchState);
@@ -1081,7 +987,7 @@
                     ++filled; write(`fill-state-${index}`, '已填入');
                 } catch (error) { ++skipped; write(`fill-state-${index}`, error.message); }
             }
-            if (id === runId && !destroyed) { captureAttempt(); write('searchStatus', `已填入 ${filled} 题，${skipped} 题需人工处理。实际作答已保存在本地，请检查后自行提交。`); }
+            if (id === runId && !destroyed) { write('searchStatus', `已填入 ${filled} 题，${skipped} 题需人工处理。请检查后自行提交；可点击下载 Excel 保存当前答案。`); }
         }
         listen('fillAnswers', async () => {
             if (running || !results.length) return;
@@ -1094,7 +1000,6 @@
             const id = ++runId;
             try {
                 cfg = config();
-                if (!bankHealthy) throw Error('本地题库不可用，请先导出或处理存储错误。');
                 cfg.examId = examIdentity();
                 persistConfig();
                 busy(true);
@@ -1110,8 +1015,8 @@
                 if (!questions.length || questions.length > 100 || raw.length > 100000 || questions.some(q => q.length > 6000)) {
                     throw Error('请检查题目分隔：每题之间单独一行 ===，最多 100 题、每题 6000 字。');
                 }
-                if (!cfg.key && questions.some(question => { const memory = memoryFor(question); return !memory.right && !memory.conflict; })) throw Error('部分题目需要重新分析，请先填写 API 密钥。已核实的整套题可不调用接口直接复用。');
-                if (!window.confirm(`确认分析考试“${$('examGroup').value.trim()}”的 ${questions.length} 道题？\n已核实答案将从本地题库复用；其余题交给 DeepSeek，已证实错误的答案组合会排除。`)) { cfg.key = ''; busy(false); return; }
+                if (!cfg.key) throw Error('请先填写 API 密钥。');
+                if (!window.confirm(`确认分析当前考试的 ${questions.length} 道题？题目将发送给 DeepSeek，答案需要自行核对。`)) { cfg.key = ''; busy(false); return; }
                 runExam = cfg.examId;
             } catch (error) {
                 if (cfg) cfg.key = '';
@@ -1127,19 +1032,6 @@
                 for (const question of questions.slice(finished)) {
                     if (id !== runId || destroyed) break;
                     write('searchStatus', `正在分析 ${finished + 1} / ${questions.length} 题，逐题调用接口…`);
-                    const memory = memoryFor(question);
-                    if (memory.conflict) {
-                        const result = { question, values: [], valid: false, explanation: '本地题库存在互相冲突的已确认反馈，需要人工核实；未自动复用或填入。', display: '证据冲突', sources: [], searched: false };
-                        results.push(result); renderAnswer(result, finished++); saveDraft(); continue;
-                    }
-                    if (memory.right) {
-                        const values = bankLabels(memory.q, memory.right);
-                        if (values) {
-                            const result = { question, values, valid: true, explanation: '来自本考试本地题库的已核实答案，已按选项内容映射当前字母。', display: values.join('、'), sources: [], searched: false, fromBank: true };
-                            results.push(result); renderAnswer(result, finished++); saveDraft(); continue;
-                        }
-                    }
-                    const modelQuestion = memory.wrong.length ? question + '\n\n历史作答反馈（仅供分析，不是新题目）：以下选项内容组合已被明确判错，不得重复推荐。多选仅排除整个组合，不代表组合中的每个选项都错。\n' + JSON.stringify(memory.wrong.map(a => JSON.parse(a))) + '\n在剩余可能中重新判断；内部制度无依据时保持 uncertain:true，并在解释中说明推测及依据不足。' : question;
                     let sources = [];
                     if (cfg.webSearch) {
                         write('searchStatus', `正在联网检索 ${finished + 1} / ${questions.length} 题…`);
@@ -1147,14 +1039,11 @@
                         if (id !== runId || destroyed) break;
                         write('searchStatus', `检索到 ${sources.length} 条来源，正在分析 ${finished + 1} / ${questions.length} 题…`);
                     }
-                    const answer = await requestWithRetry(cfg, modelQuestion, id, sources);
+                    const answer = await requestWithRetry(cfg, question, id, sources);
                     answer.sources = sources; answer.searched = cfg.webSearch;
                     if (id !== runId || destroyed) break;
                     const result = decodeAnswer(question, answer);
-                    if (memory.q && memory.wrong.includes(bankAnswer(memory.q, result.values))) { result.valid = false; result.explanation += '\n该答案组合在本地记录中已被判错，已禁止自动填入。'; }
-                    if (memory.wrong.length) result.explanation += '\n已结合历史错题重新分析，当前答案仍未证实正确。';
                     results.push(result); renderAnswer(result, finished);
-                    saveDraft();
                     ++finished;
                 }
                 if (id === runId && !destroyed) {

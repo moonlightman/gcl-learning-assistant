@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
-const src = fs.readFileSync('鑫知海-自动继续学习.user.js', 'utf8');
+const src = fs.readFileSync('versions/gcl-learning-4.9.user.js', 'utf8');
 eval(src.slice(src.indexOf('    function bankQuestion('), src.indexOf('    function setupDeepSeek(')));
 const a = bankQuestion('单选题 1. 测试题干\nA. 甲\nB. 乙\nC. 丙');
 const b = bankQuestion('单选题 8. 测试题干\nA. 丙\nB. 甲\nC. 乙');

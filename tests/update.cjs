@@ -8,9 +8,9 @@ const GM_xmlhttpRequest=opts=>{pending=opts;return {abort(){opts.onabort();}};};
 eval(code);
 const dispose=setupUpdater();
 function version(v){nodes.checkUpdate.click();pending.onload({status:200,responseText:`// ==UserScript==\n// @version ${v}\n// ==/UserScript==`});}
-version('4.10');assert.equal(nodes.installUpdate.hidden,false);
+version('4.11');assert.equal(nodes.installUpdate.hidden,false);
 assert(nodes.installUpdate.href.startsWith('https://raw.githubusercontent.com/moonlightman/'));
-version('4.9');assert.equal(nodes.installUpdate.hidden,true);
+version('4.10');assert.equal(nodes.installUpdate.hidden,true);
 version('4.8');assert.equal(nodes.installUpdate.hidden,true);
 nodes.checkUpdate.click();pending.ontimeout();assert(nodes.updateStatus.textContent.includes('超时'));
 nodes.checkUpdate.click();pending.onload({status:404});assert(nodes.updateStatus.textContent.includes('404'));

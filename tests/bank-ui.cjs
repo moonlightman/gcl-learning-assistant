@@ -2,7 +2,7 @@ const {parseHTML} = require('linkedom');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
-const source=fs.readFileSync('鑫知海-自动继续学习.user.js','utf8');
+const source=fs.readFileSync('versions/gcl-learning-4.9.user.js','utf8');
 const store = new Map();
 function boot() {
   const {window} = parseHTML(`<html><body><div class="yxtulcdsdk-review-fixed-content"><div><div>测试考试</div></div><section><header>单选题 共1小题</header><div class="pb24 ph32"><div><div class="w32">1.</div><span data-rich-text>测试题干</span><label>A. 甲<input type="radio" checked></label><label>B. 乙<input type="radio"></label><div id="feedback"></div></div></div></section></div><button id="submit">提交考试</button></body></html>`);
