@@ -35,7 +35,7 @@ a.root.getElementById('downloadQuestions').click();
 assert(a.root.getElementById('exportStatus').textContent.includes('已下载 1 题'));
 assert.equal(store.has('gcl-exam-bank-v1'),false);
 const blob=a.downloaded(); assert(blob); assert.equal(blob.type,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-fs.writeFileSync(process.env.TEMP+'/gcl-export-test.xlsx',Buffer.from(await blob.arrayBuffer()));
+fs.writeFileSync(require('node:path').join(require('node:os').tmpdir(),'gcl-export-test.xlsx'),Buffer.from(await blob.arrayBuffer()));
 const bytes=Buffer.from(await blob.arrayBuffer());
 assert(bytes.includes(Buffer.from('测试题干')));assert(bytes.includes(Buffer.from('页面已选答案')));
 assert(bytes.includes(Buffer.from('>A</t>')));
