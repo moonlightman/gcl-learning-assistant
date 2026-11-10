@@ -8,7 +8,8 @@ const GM_xmlhttpRequest=opts=>{pending=opts;return {abort(){opts.onabort();}};};
 eval(code);
 const dispose=setupUpdater();
 function version(v){nodes.checkUpdate.click();pending.onload({status:200,responseText:`// ==UserScript==\n// @version ${v}\n// ==/UserScript==`});}
-version('4.14');assert.equal(nodes.installUpdate.hidden,false);
+version('4.15');assert.equal(nodes.installUpdate.hidden,false);
+version('4.14');assert.equal(nodes.installUpdate.hidden,true);
 version('4.13');assert.equal(nodes.installUpdate.hidden,true);
 version('4.12');assert.equal(nodes.installUpdate.hidden,true);
 version('4.11');assert.equal(nodes.installUpdate.hidden,true);

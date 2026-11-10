@@ -2,7 +2,7 @@
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
 // @author       山川
-// @version      4.13
+// @version      4.14
 // @updateURL    https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
@@ -93,6 +93,18 @@
           margin:10px 0;padding:9px;border:1px solid #486080;border-radius:8px;
           background:#0c1728;color:#eef4ff;font:13px/1.5 "Microsoft YaHei",sans-serif}
         .search-actions{display:flex;flex-wrap:wrap;gap:7px;margin:9px 0}
+        .update-box{padding:12px;background:#0c1728;border:1px solid #334763;border-radius:10px;min-width:0}
+        .update-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+        .update-version{font-size:12px;color:#acbdd6;white-space:nowrap}
+        .update-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+        .update-actions button,.update-actions a{display:flex;align-items:center;justify-content:center;min-height:38px;
+          min-width:0;margin:0;padding:8px 10px;border:1px solid transparent;border-radius:7px;
+          font:inherit;font-size:13px;line-height:1.4;text-align:center;text-decoration:none;white-space:nowrap}
+        .update-actions a{background:#168b64;color:#fff}
+        .update-actions a:hover{background:#107653}
+        .update-actions button:hover:not(:disabled){background:#3d587b}
+        .update-actions :is(button,a):focus-visible{outline:2px solid #69dfb2;outline-offset:2px}
+        #updateStatus{margin-top:10px;line-height:1.7;overflow-wrap:anywhere}
         #searchStatus{font-size:12px;color:#acbdd6;overflow-wrap:anywhere}
         input:not([type=checkbox]):not([type=range]){width:100%;padding:7px;margin:4px 0 8px;border:1px solid #486080;
           border-radius:6px;background:#0c1728;color:white}
@@ -108,7 +120,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.13</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.14</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -139,11 +151,11 @@
         </details>
         </div>
         <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
-          <details open><summary>脚本更新</summary>
-            <div class="label">当前版本 4.13</div>
-            <div class="search-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer" style="color:#69dfb2">安装新版</a></div>
-            <div id="updateStatus" class="label" role="status">点击检查 GitHub 最新版本；安装时由油猴确认。</div>
-          </details>
+          <section class="update-box" aria-label="脚本更新">
+            <div class="update-heading"><strong>脚本更新</strong><span class="update-version">当前 v4.14</span></div>
+            <div class="update-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer">安装新版</a></div>
+            <div id="updateStatus" class="label" role="status">检查新版本；安装时由油猴确认。</div>
+          </section>
           <label>浮窗不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
           <label>文档翻页间隔（秒，10～600）<input id="docInterval" type="number" min="10" max="600" value="90"></label>
           <div class="label">文档需保留平台规定的学习时长；末页等待完成标记。隐藏页面时暂停翻页。</div>
@@ -629,7 +641,7 @@
     start();
 
     function setupUpdater() {
-        const current = '4.13';
+        const current = '4.14';
         const metadataURL = 'https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js';
         const downloadURL = "https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js";
         let handle = null, disposed = false, checking = false;
@@ -660,7 +672,7 @@
                         }
                         if (newer) {
                             $('installUpdate').hidden = false;
-                            finish(`发现新版 ${latest}，点击“安装新版”，在油猴页面确认后刷新培训网页。`);
+                            finish(`发现 v${latest}。点击“安装新版”，确认安装后刷新课程页。`);
                         } else finish(`当前 ${current} 已是最新版本。`);
                     },
                     onerror() { finish('连接 GitHub 失败，请检查网络后重试。'); },
