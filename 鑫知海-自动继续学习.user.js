@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.11
+// @version      4.12
 // @updateURL    https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
@@ -103,7 +103,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.11</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.12</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -135,7 +135,7 @@
         </div>
         <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
           <details open><summary>脚本更新</summary>
-            <div class="label">当前版本 4.11</div>
+            <div class="label">当前版本 4.12</div>
             <div class="search-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer" style="color:#69dfb2">安装新版</a></div>
             <div id="updateStatus" class="label" role="status">点击检查 GitHub 最新版本；安装时由油猴确认。</div>
           </details>
@@ -413,8 +413,10 @@
             write('status', '视频检测待命 · 搜题功能可用');
             return;
         }
-        if (activeCourse.startsWith('doc:')) { checkDocument(); return; }
-        if (recoverPlaybackPrompt()) return;
+        if (recoverPlaybackPrompt()) {
+            if (activeCourse.startsWith('doc:')) { docAt = Date.now(); docDoneStreak = 0; }
+            return;
+        }
         const button = findPrompt();
         if (pending && !button) {
             count = Math.min(Number.MAX_SAFE_INTEGER, count + 1);
@@ -427,6 +429,13 @@
             button.click();
         }
 
+        if (activeCourse.startsWith('doc:')) {
+            if (button || pending) {
+                docAt = Date.now(); docDoneStreak = 0;
+                write('status', '已点击，等待验证弹窗关闭'); return;
+            }
+            checkDocument(); return;
+        }
         const videos = courseVideos();
         const total = videos.length;
         const unknown = videos.filter(row => lessonState(row) === 'unknown').length;
@@ -530,7 +539,7 @@
     start();
 
     function setupUpdater() {
-        const current = '4.11';
+        const current = '4.12';
         const metadataURL = 'https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js';
         const downloadURL = "https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js";
         let handle = null, disposed = false, checking = false;
