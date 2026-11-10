@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
-// @version      4.12
+// @version      4.13
 // @updateURL    https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
@@ -33,6 +33,10 @@
         '胃袋必死这一块', '冯了个福'
     ];
     function courseKey() {
+        if (/^#\/video\/play(?:\?|$)/.test(location.hash)) {
+            const id = new URLSearchParams(location.hash.split('?')[1] || '').get('kngId');
+            return id ? `single:${id}` : '';
+        }
         if (/^#\/doc\/play(?:\?|$)/.test(location.hash)) {
             const id = new URLSearchParams(location.hash.split('?')[1] || '').get('kngId');
             return id ? `doc:${id}` : '';
@@ -103,7 +107,7 @@
         footer .author{margin-top:4px}
       </style>
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.12</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle"><span>学习助手 4.13</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
         <div id="panelBody">
         <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
         <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
@@ -114,7 +118,7 @@
         <div id="status" role="status">正在检测</div>
         <nav><button id="pause">暂停</button><button id="reset">计数清零</button></nav>
         <nav><button id="startLearning">自动开始学习</button><button id="stopLearning" disabled>停止续学</button></nav>
-        <div id="learningStatus" class="label">视频从首个未完成章节续学；文档按设定间隔翻页，等待平台确认完成。</div>
+        <div id="learningStatus" class="label">支持目录视频、独立单视频和文档阅读；以平台标记确认完成。</div>
         <details open>
           <summary>DeepSeek 题目助手</summary>
           <div class="search-actions"><button id="readQuestions">读取页面题目</button><button id="runApi">开始逐题分析</button><button id="stopApi" disabled>停止</button></div>
@@ -135,7 +139,7 @@
         </div>
         <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
           <details open><summary>脚本更新</summary>
-            <div class="label">当前版本 4.12</div>
+            <div class="label">当前版本 4.13</div>
             <div class="search-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer" style="color:#69dfb2">安装新版</a></div>
             <div id="updateStatus" class="label" role="status">点击检查 GitHub 最新版本；安装时由油猴确认。</div>
           </details>
@@ -190,6 +194,79 @@
         return s.display !== 'none' && s.visibility === 'visible';
     }
     let docAt = 0, docPage = 0, docExpected = 0, docClickedAt = 0, docDoneStreak = 0;
+    function platformLearningPercent() {
+        const progress = [...document.querySelectorAll('[role="progressbar"]')].filter(visible)
+            .filter(el => el.getAttribute('aria-valuemax') === '100');
+        if (progress.length === 1) {
+            const raw = progress[0].getAttribute('aria-valuenow');
+            const value = raw === null || raw.trim() === '' ? NaN : Number(raw);
+            if (Number.isFinite(value) && value >= 0 && value <= 100) return value;
+        }
+        // 平台完成后会用“已完成学习”替换进度条。
+        if (!progress.length && [...document.querySelectorAll('span, div')].some(el =>
+            !el.children.length && visible(el) && el.textContent.trim() === '已完成学习')) return 100;
+        return null;
+    }
+    let singleDoneStreak = 0;
+    function singleStartButtons() {
+        return [...document.querySelectorAll('button')].filter(button => visible(button) &&
+            !button.closest('[role="dialog"]') && !button.disabled && button.getAttribute('aria-disabled') !== 'true' &&
+            /^(开始学习|继续学习)$/.test(directoryText(button)));
+    }
+    function checkSingleVideo() {
+        const percent = platformLearningPercent();
+        write('progressText', `单视频 · 平台进度 ${percent === null ? '待确认' : percent + '%'}`);
+        $('progress').max = 100; $('progress').value = percent ?? 0;
+        write('miniStatus', percent === null ? '单视频' : `${percent}%`);
+        singleDoneStreak = percent === 100 ? singleDoneStreak + 1 : 0;
+        if (singleDoneStreak >= 3) {
+            haltLearning('平台已显示单视频学习完成。');
+            completed = true; stop(); $('pause').disabled = true;
+            write('status', '单视频学习已完成');
+            write('completionText', '当前单视频课程的平台标记已显示学习完成。');
+            write('summary', '其他课程或任务请另行完成。'); $('notice').hidden = false; return;
+        }
+        write('status', '单视频检测中 · 暂离及多端提示检测已启用');
+        if (!autoLearning) return;
+        if (document.querySelector('.yxtulcdsdk-review-fixed-content input:not(:disabled)')) {
+            haltLearning('检测到正在作答的试卷，已停止自动续学。'); return;
+        }
+        if ([...document.querySelectorAll('[role="dialog"]')].some(visible)) {
+            write('learningStatus', '存在弹窗，请处理后继续。'); return;
+        }
+        const videos = [...document.querySelectorAll('video')].filter(visible);
+        if (videos.length > 1) { haltLearning('检测到多个播放器，无法唯一识别，请手动播放。'); return; }
+        const video = videos[0];
+        if (!video) {
+            const buttons = singleStartButtons();
+            if (!playAttempted && buttons.length === 1) {
+                playAttempted = true; learningAt = Date.now(); buttons[0].click();
+                write('learningStatus', '已点击学习入口，等待播放器加载…'); return;
+            }
+            if (buttons.length > 1 || Date.now() - learningAt > 20000) {
+                haltLearning('未能唯一识别或加载单视频播放器，请手动开始后重试。'); return;
+            }
+            write('learningStatus', '等待单视频播放器加载…'); return;
+        }
+        if (video.error) { haltLearning('视频播放出错，请处理播放器提示后重试。'); return; }
+        if (video.ended) { write('learningStatus', '视频已结束，等待平台完成标记…'); return; }
+        if (!video.paused) {
+            playbackStarted = true; write('learningStatus', '单视频正在播放，等待平台更新进度。'); return;
+        }
+        if (playbackStarted) { write('learningStatus', '视频已暂停，请手动恢复播放。'); return; }
+        // 入口按钮和 video.play 分开记录，入口加载后仍可尝试一次播放。
+        if (!singlePlayAttempted) {
+            singlePlayAttempted = true;
+            const key = activeCourse;
+            const failed = () => {
+                if (autoLearning && activeCourse === key) haltLearning('浏览器未允许播放，请手动点击播放器后重试。');
+            };
+            try { video.play()?.catch(failed); } catch (_) { failed(); }
+        } else if (Date.now() - learningAt > 20000) {
+            haltLearning('播放器未开始播放，请手动点击后重试。');
+        }
+    }
+    let singlePlayAttempted = false;
     function documentState() {
         const pagers = [...document.querySelectorAll('.yxtbiz-doc-player__toolbar-page')].filter(visible);
         if (pagers.length !== 1) return null;
@@ -198,11 +275,9 @@
         if (!Number.isInteger(page) || !Number.isInteger(total) || page < 1 || page > total) return null;
         const item = pager.closest('.yxtbiz-doc-player__toolbar-item');
         const next = item?.nextElementSibling;
-        const progress = [...document.querySelectorAll('[role="progressbar"]')].filter(visible)
-            .filter(el => el.getAttribute('aria-valuemax') === '100');
-        const percent = progress.length === 1 ? Number(progress[0].getAttribute('aria-valuenow')) : NaN;
+        const percent = platformLearningPercent();
         return { page, total, next: next?.matches('.yxtbiz-doc-player__toolbar-item') ? next : null,
-            percent: Number.isFinite(percent) && percent >= 0 && percent <= 100 ? percent : null };
+            percent };
     }
     function checkDocument() {
         const state = documentState();
@@ -330,7 +405,7 @@
         return !!active && directoryText(active).replace(/^视频\s*[|｜]\s*/, '') === lesson.title;
     }
     function haltLearning(message) {
-        docAt = Date.now(); docPage = 0; docExpected = 0; docDoneStreak = 0;
+        docAt = Date.now(); docPage = 0; docExpected = 0; docDoneStreak = 0; singleDoneStreak = 0;
         autoLearning = false; learningTarget = ''; learningDoneStreak = 0;
         $('startLearning').disabled = false; $('stopLearning').disabled = true;
         write('learningStatus', message);
@@ -414,6 +489,7 @@
             return;
         }
         if (recoverPlaybackPrompt()) {
+            singleDoneStreak = 0;
             if (activeCourse.startsWith('doc:')) { docAt = Date.now(); docDoneStreak = 0; }
             return;
         }
@@ -429,6 +505,10 @@
             button.click();
         }
 
+        if (activeCourse.startsWith('single:')) {
+            if (button || pending) { singleDoneStreak = 0; write('status', '已点击，等待验证弹窗关闭'); return; }
+            checkSingleVideo(); return;
+        }
         if (activeCourse.startsWith('doc:')) {
             if (button || pending) {
                 docAt = Date.now(); docDoneStreak = 0;
@@ -495,6 +575,15 @@
         if (document.querySelector('.yxtulcdsdk-review-fixed-content input:not(:disabled)')) {
             write('learningStatus', '请先完成或退出当前考试，再开始自动学习。'); return;
         }
+        if (activeCourse.startsWith('single:')) {
+            if (platformLearningPercent() === 100) { write('learningStatus', '平台已显示单视频学习完成。'); return; }
+            paused = false; completed = false; autoLearning = true;
+            learningAt = Date.now(); playAttempted = false; singlePlayAttempted = false;
+            playbackStarted = false; singleDoneStreak = 0;
+            $('pause').disabled = false; write('pause', '暂停');
+            $('startLearning').disabled = true; $('stopLearning').disabled = false;
+            start(); checkSingleVideo(); return;
+        }
         if (activeCourse.startsWith('doc:')) {
             const state = documentState();
             if (!state) { write('learningStatus', '请等待文档阅读器加载完成。'); return; }
@@ -539,7 +628,7 @@
     start();
 
     function setupUpdater() {
-        const current = '4.12';
+        const current = '4.13';
         const metadataURL = 'https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js';
         const downloadURL = "https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js";
         let handle = null, disposed = false, checking = false;
