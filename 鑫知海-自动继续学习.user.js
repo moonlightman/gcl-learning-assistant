@@ -2,7 +2,7 @@
 // @name         鑫知海 - 自动继续学习
 // @namespace    local.gcl-learning
 // @author       山川
-// @version      4.14
+// @version      4.15
 // @updateURL    https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js
 // @downloadURL  https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js
 // @description  可拖动透明浮窗、自动续学、DeepSeek 答案汇总及自动填入（不提交试卷）
@@ -66,129 +66,241 @@
     const root = host.attachShadow({ mode: 'closed' });
     root.innerHTML = `
       <style>
-        :host{font:14px/1.6 "Microsoft YaHei",sans-serif;color:#e8eef9}
+        :host{--surface-alpha:.94;--ink:#1c1c1e;--muted:#6e6e73;--blue:#007aff;
+          font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);color-scheme:light}
         *{box-sizing:border-box} [hidden]{display:none!important}
-        .card{width:min(360px,calc(100vw - 16px));max-height:85vh;overflow:auto;padding:18px;background:#152238;border:1px solid #334763;
-          border-radius:16px;box-shadow:0 8px 32px #0005}
-        header{font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:space-between;
-          gap:8px;cursor:move;user-select:none;touch-action:none}
-        #panelBody{margin-top:10px}#card.mini{width:210px;padding:10px 14px}
-        #card.mini #panelBody,#card.mini footer{display:none}#miniStatus{font-size:12px;color:#69dfb2}
-        .label{color:#acbdd6;font-size:12px}.number{font-size:34px;color:#69dfb2;font-weight:700}
-        #status{margin:10px 0;color:#cad7eb;font-size:12px;overflow-wrap:anywhere}
-        progress{width:100%;height:8px;accent-color:#52d6a2}
-        nav{display:flex;gap:8px;margin-top:12px}
-        button{border:0;border-radius:7px;padding:7px 12px;background:#304664;color:white;cursor:pointer}
-        button:disabled{opacity:.5;cursor:default}
-        .tabs{margin:0 0 14px;border-bottom:1px solid #334763;padding-bottom:8px}
-        .tabs button[aria-selected=true]{background:#168b64}
-        .overlay{position:fixed;inset:0;background:#0007;display:grid;place-items:center}
-        .message{width:min(400px,90vw);padding:28px;background:white;color:#243348;
-          border-radius:16px;box-shadow:0 12px 60px #0005;text-align:center}
-        h2{font-size:22px;margin:0 0 12px}.message p{font-size:14px}
-        .message button{background:#168b64}
-        details{border-top:1px solid #334763;margin-top:15px;padding-top:12px}
-        summary{cursor:pointer;font-weight:700}
-        textarea{display:block;width:100%;height:110px;resize:vertical;max-height:220px;
-          margin:10px 0;padding:9px;border:1px solid #486080;border-radius:8px;
-          background:#0c1728;color:#eef4ff;font:13px/1.5 "Microsoft YaHei",sans-serif}
-        .search-actions{display:flex;flex-wrap:wrap;gap:7px;margin:9px 0}
-        .update-box{padding:12px;background:#0c1728;border:1px solid #334763;border-radius:10px;min-width:0}
-        .update-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
-        .update-version{font-size:12px;color:#acbdd6;white-space:nowrap}
+        .card{width:min(376px,calc(100vw - 16px));max-height:85vh;display:flex;flex-direction:column;
+          background:rgba(245,245,247,var(--surface-alpha));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+          border:1px solid rgba(255,255,255,.85);border-radius:24px;box-shadow:0 12px 48px #18253926,0 2px 8px #1825390a;overflow:hidden}
+        header{display:flex;align-items:center;gap:8px;padding:16px 18px 12px;flex-shrink:0;cursor:move;touch-action:none;user-select:none}
+        .brand-title{display:flex;align-items:center;gap:8px;min-width:0;font-weight:650;font-size:15px}
+        .brand-title>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .brand-dot{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:var(--blue)}
+        #miniStatus{margin-left:auto;max-width:96px;flex-shrink:0;padding:3px 8px;background:#e6f0ff;color:#0065d1;
+          border-radius:12px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        #miniStatus:empty{display:none}
+        button,.update-actions a{appearance:none;-webkit-appearance:none;display:inline-flex;align-items:center;justify-content:center;
+          min-height:36px;min-width:0;padding:8px 11px;margin:0;border:0;border-radius:11px;background:#eef0f4;color:#35353b;
+          font:inherit;font-size:13px;font-weight:550;line-height:1.4;cursor:pointer;text-align:center;text-decoration:none;
+          transition:background .15s,transform .15s}
+        button:hover:not(:disabled){background:#e4e7ec}
+        button:active:not(:disabled),.update-actions a:active{transform:scale(.98)}
+        button:disabled{opacity:1;background:#f0f1f3;color:#a7a8ae;cursor:default}
+        .btn-primary,.update-actions a,.message button{background:var(--blue);color:white}
+        .btn-primary:hover:not(:disabled),.update-actions a:hover,.message button:hover{background:#0067db}
+        .btn-danger{background:#fff0ef;color:#d93632}.btn-danger:hover:not(:disabled){background:#ffe3e1}
+        .btn-block{width:100%}
+        #minimize{width:28px;min-height:28px;flex-shrink:0;padding:0;border-radius:50%;font-size:19px;background:#e8eaee;color:#68686e}
+        #card.mini{width:min(210px,calc(100vw - 16px));border-radius:22px}
+        #card.mini header{padding:10px 12px;gap:6px}
+        #card.mini .brand-title{font-size:12px;flex:1}
+        #card.mini .brand-dot{display:none}
+        #card.mini #miniStatus{max-width:62px;font-size:10px;padding:3px 6px}
+        #card.mini #panelBody,#card.mini footer{display:none}
+        #panelBody{padding:0 14px 12px;overflow-y:auto;flex:1;min-height:0;scrollbar-width:thin;scrollbar-color:#c5c8d0 transparent}
+        .tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;margin:0 0 14px;padding:3px;border-radius:12px;background:#e8e9ed}
+        .tabs button{min-height:31px;padding:5px 10px;border-radius:9px;background:transparent;font-weight:550;color:#6b6b73}
+        .tabs button[aria-selected=true]{background:#fff;color:#1c1c1e;box-shadow:0 1px 4px #00000012}
+        .glass-section,.update-box,details{padding:14px;margin:0 0 12px;background:#ffffffeb;border:1px solid #eceef2;border-radius:17px;min-width:0}
+        .stat-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+        .counter-group{display:flex;align-items:baseline;gap:4px;flex-shrink:0}
+        .number{font-size:32px;line-height:1.1;font-weight:650;letter-spacing:-1px;color:var(--blue);font-variant-numeric:tabular-nums}
+        .label{font-size:12px;color:var(--muted);line-height:1.65;overflow-wrap:anywhere}
+        #status{margin-top:6px;font-size:12px;line-height:1.5;color:#38824b;overflow-wrap:anywhere}
+        #progressText{margin-bottom:7px;font-size:12px}
+        progress{display:block;width:100%;height:5px;appearance:none;border:0;border-radius:8px;overflow:hidden;background:#eceef2;accent-color:var(--blue)}
+        progress::-webkit-progress-bar{background:#eceef2;border-radius:8px}
+        progress::-webkit-progress-value{background:var(--blue);border-radius:8px}
+        progress::-moz-progress-bar{background:var(--blue);border-radius:8px}
+        nav:not(.tabs){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+        #learningStatus{margin-top:12px;padding-top:10px;border-top:1px solid #eff0f3}
+        summary{font-weight:600;font-size:14px;cursor:pointer;list-style-position:inside;color:var(--ink);border-radius:4px}
+        details[open]>summary{margin-bottom:12px}
+        details details{margin:12px 0;padding:10px;background:#f6f7f9;border:0;border-radius:11px}
+        details details summary{font-size:12px;color:#55555e}
+        .search-actions{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+        .search-actions.grid-3{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto}
+        .search-actions button{flex:1}
+        .search-actions.grid-3 button{padding:8px 7px;font-size:12px}
+        label{display:block;margin-top:10px;font-size:12px;color:#55555e}
+        .checkbox-row{display:flex;align-items:flex-start;gap:7px;line-height:1.6;margin:10px 0 5px}
+        input[type=checkbox]{accent-color:var(--blue);width:15px;height:15px;flex-shrink:0;margin:3px 0 0}
+        input:not([type=checkbox]):not([type=range]),textarea{display:block;width:100%;min-width:0;margin:6px 0;padding:9px 10px;
+          border:1px solid #e6e8ee;border-radius:10px;background:#f7f8fa;color:var(--ink);font:inherit;font-size:13px;line-height:1.5}
+        input::placeholder,textarea::placeholder{color:#9b9ca4}
+        input:not([type=checkbox]):not([type=range]):focus,textarea:focus{border-color:#76b3ff;background:#fff}
+        textarea{height:100px;max-height:220px;resize:vertical}
+        #opacity{width:100%;accent-color:var(--blue);margin:12px 0 6px}
+        #opacityValue{float:right;color:var(--blue);font-weight:550}
+        #searchStatus{margin:12px 0;padding:10px;border-radius:10px;background:#f1f6ff;color:#58687e;font-size:12px;overflow-wrap:anywhere}
+        #results{max-height:300px;overflow:auto;scrollbar-width:thin}
+        #results:empty{display:none}
+        #results article{margin:8px 0;padding:12px;background:#f7f8fa;border:1px solid #eceef2;border-radius:12px}
+        .answer-line{display:flex;justify-content:space-between;align-items:center;gap:8px}
+        .answer-line strong{font-size:13px}
+        .answer-value{font-size:14px;font-weight:650;color:var(--blue);padding:2px 9px;border-radius:8px;background:#e8f1ff}
+        .fill-state{margin-top:5px;font-size:12px;color:var(--muted)}
+        #results details{margin:8px 0 0;padding:0;border:0;background:transparent}
+        #results summary{font-size:12px;font-weight:450;color:#656772}
+        #results pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:12px;line-height:1.7;color:#55555e}
+        #results a{display:inline-block;color:var(--blue)!important;font-size:12px;overflow-wrap:anywhere;text-decoration:none}
+        #results a:hover{text-decoration:underline}
+        .export-group{margin-top:14px;padding-top:2px;border-top:1px solid #eff0f3}
+        .update-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;font-size:14px}
+        .update-version{font-size:11px;color:var(--muted);white-space:nowrap}
         .update-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-        .update-actions button,.update-actions a{display:flex;align-items:center;justify-content:center;min-height:38px;
-          min-width:0;margin:0;padding:8px 10px;border:1px solid transparent;border-radius:7px;
-          font:inherit;font-size:13px;line-height:1.4;text-align:center;text-decoration:none;white-space:nowrap}
-        .update-actions a{background:#168b64;color:#fff}
-        .update-actions a:hover{background:#107653}
-        .update-actions button:hover:not(:disabled){background:#3d587b}
-        .update-actions :is(button,a):focus-visible{outline:2px solid #69dfb2;outline-offset:2px}
-        #updateStatus{margin-top:10px;line-height:1.7;overflow-wrap:anywhere}
-        #searchStatus{font-size:12px;color:#acbdd6;overflow-wrap:anywhere}
-        input:not([type=checkbox]):not([type=range]){width:100%;padding:7px;margin:4px 0 8px;border:1px solid #486080;
-          border-radius:6px;background:#0c1728;color:white}
-        label{display:block;font-size:12px;color:#acbdd6}
-        #results{max-height:310px;overflow:auto}#results article{padding:10px 0;border-top:1px solid #334763}
-        #results pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 "Microsoft YaHei",sans-serif}
-        #opacity{width:100%}.answer-line{display:flex;justify-content:space-between;gap:12px}
-        .answer-value{color:#69dfb2;font-size:18px;font-weight:700}
-        #results details{border:0;margin:4px 0;padding:0}#results summary{font-size:12px;font-weight:400;color:#acbdd6}
-        .fill-state{font-size:12px;color:#acbdd6}
-        footer{margin-top:15px;padding-top:10px;border-top:1px solid #334763;text-align:center;color:#acbdd6;font-size:12px}
-        #memeText{min-height:1.6em;color:#69dfb2;overflow-wrap:anywhere}
-        footer .author{margin-top:4px}
+        .update-actions a{white-space:nowrap}
+        #updateStatus{margin-top:10px;font-size:12px}
+        .grid-2-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;padding:10px 18px;
+          border-top:1px solid #e4e6eb;font-size:11px;color:#96979e}
+        #memeText{flex:1;overflow-wrap:anywhere;color:#81838b}.author{white-space:nowrap}
+        .overlay{position:fixed;inset:0;background:#1b253866;display:grid;place-items:center;z-index:10}
+        .message{width:min(340px,90vw);max-height:85vh;overflow:auto;padding:26px;background:#fafafc;border:1px solid #fff;
+          border-radius:22px;box-shadow:0 12px 48px #1b253833;color:var(--ink);text-align:center}
+        .message h2{font-size:20px;margin:0 0 12px}.message p{font-size:13px;line-height:1.7;color:var(--muted)}
+        .message button{width:100%;margin-top:12px}
+        :is(button,a,input,textarea,summary):focus-visible{outline:2px solid #007aff;outline-offset:3px}
+        @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card{background:#f5f5f7}}
+        @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+        @media (max-width:340px){.grid-2-cols{grid-template-columns:1fr}.search-actions.grid-3{grid-template-columns:1fr 1fr}
+          .search-actions.grid-3 #stopApi{grid-column:1 / -1}header{padding-left:14px;padding-right:14px}}
       </style>
+
       <section class="card" id="card" aria-label="学习助手">
-        <header id="dragHandle"><span>学习助手 4.14</span><span id="miniStatus"></span><button id="minimize" aria-label="最小化">−</button></header>
+        <header id="dragHandle">
+          <span class="brand-title"><span class="brand-dot"></span><span>学习助手 4.15</span></span>
+          <span id="miniStatus"></span>
+          <button id="minimize" aria-label="最小化">−</button>
+        </header>
+
         <div id="panelBody">
-        <nav class="tabs" role="tablist" aria-label="浮窗页面"><button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button><button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button></nav>
-        <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
-        <div class="label">已自动处理验证弹窗</div>
-        <div><span class="number" id="count">0</span> 次</div>
-        <div id="progressText" class="label">读取课程进度…</div>
-        <progress id="progress" value="0" max="1"></progress>
-        <div id="status" role="status">正在检测</div>
-        <nav><button id="pause">暂停</button><button id="reset">计数清零</button></nav>
-        <nav><button id="startLearning">自动开始学习</button><button id="stopLearning" disabled>停止续学</button></nav>
-        <div id="learningStatus" class="label">支持目录视频、独立单视频和文档阅读；以平台标记确认完成。</div>
-        <details open>
-          <summary>DeepSeek 题目助手</summary>
-          <div class="search-actions"><button id="readQuestions">读取页面题目</button><button id="runApi">开始逐题分析</button><button id="stopApi" disabled>停止</button></div>
-          <label><input id="autoFill" type="checkbox" checked> 分析完成后提示确认填入答案</label>
-          <div class="label">自动填入仅匹配当前试卷的题干及选项，填完后请检查并自行提交。</div>
-          <details><summary>题目预览与修改</summary>
-          <div class="label">每题之间用一行 === 分隔。</div>
-          <textarea id="question" maxlength="100000" aria-label="已读取的题目" placeholder="等待读取当前页面中已加载的题干和选项；也可粘贴整套题目。"></textarea>
-          </details>
-          <div class="search-actions"><button id="clearQuestion">清空题目及结果</button></div>
-          <div id="searchStatus" role="status">尚未调用接口。读取题目不会发送网络请求。</div>
-          <div class="search-actions"><button id="fillAnswers" disabled>填入已分析答案</button></div>
-          <div id="results"></div>
-          <label>考试名称<input id="examGroup" maxlength="200"></label>
-          <div class="search-actions"><button id="downloadQuestions">读取题目并下载 Excel</button></div>
-          <div id="exportStatus" class="label">下载当前页面题目、已选答案及本次分析答案（未核实），不保存历史题库。图片仅标记，需人工核对。</div>
-        </details>
+          <nav class="tabs" role="tablist" aria-label="浮窗页面">
+            <button id="homeTab" role="tab" aria-controls="homePage" aria-selected="true">主页</button>
+            <button id="settingsTab" role="tab" aria-controls="settingsPage" aria-selected="false">设置</button>
+          </nav>
+
+          <div id="homePage" role="tabpanel" aria-labelledby="homeTab">
+            <div class="glass-section">
+              <div class="stat-header">
+                <div>
+                  <div class="label">已自动处理验证弹窗</div>
+                  <div id="status" role="status">正在检测</div>
+                </div>
+                <div class="counter-group"><span class="number" id="count">0</span><span class="label">次</span></div>
+              </div>
+
+              <div id="progressText" class="label">读取课程进度…</div>
+              <progress id="progress" value="0" max="1"></progress>
+
+              <nav>
+                <button id="startLearning" class="btn-primary" title="自动开始学习">开始学习</button>
+                <button id="stopLearning" class="btn-danger" disabled>停止续学</button>
+              </nav>
+              <nav>
+                <button id="pause">暂停</button>
+                <button id="reset">计数清零</button>
+              </nav>
+              <div id="learningStatus" class="label">支持目录视频、独立单视频和文档阅读；以平台标记确认完成。</div>
+            </div>
+
+            <details open>
+              <summary>DeepSeek 题目助手</summary>
+              <label>考试名称（自动读取，可修改）<input id="examGroup" maxlength="200" placeholder="未识别时请手动填写"></label>
+
+              <div class="search-actions grid-3">
+                <button id="readQuestions" title="读取页面题目">读取题目</button>
+                <button id="runApi" class="btn-primary" title="开始逐题分析">逐题分析</button>
+                <button id="stopApi" class="btn-danger" disabled>停止</button>
+              </div>
+              <label class="checkbox-row"><input id="autoFill" type="checkbox" checked> 分析完成后提示确认填入答案</label>
+              <div class="label">自动填入仅匹配当前试卷的题干及选项，填完后请检查并自行提交。</div>
+
+              <details>
+                <summary>题目预览与修改</summary>
+                <div class="label">每题之间用一行 === 分隔。</div>
+                <textarea id="question" maxlength="100000" aria-label="已读取的题目" placeholder="等待读取当前页面中已加载的题干和选项；也可粘贴整套题目。"></textarea>
+                <div class="search-actions"><button id="clearQuestion">清空题目及结果</button></div>
+              </details>
+
+              <div id="searchStatus" role="status">尚未调用接口。读取题目不会发送网络请求。</div>
+              <div class="search-actions">
+                <button id="fillAnswers" class="btn-primary btn-block" disabled>填入已分析答案</button>
+              </div>
+              <div id="results"></div>
+
+              <div class="export-group">
+
+                <div class="search-actions">
+                  <button id="downloadQuestions" class="btn-block">读取题目并下载 Excel</button>
+                </div>
+                <div id="exportStatus" class="label">下载当前页面题目、已选答案及本次分析答案（未核实），不保存历史题库。图片仅标记，需人工核对。</div>
+              </div>
+            </details>
+          </div>
+
+          <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
+            <section class="update-box" aria-label="脚本更新">
+              <div class="update-heading"><strong>脚本更新</strong><span class="update-version">当前 v4.15</span></div>
+              <div class="update-actions">
+                <button id="checkUpdate">检查更新</button>
+                <a id="installUpdate" hidden target="_blank" rel="noopener noreferrer">安装新版</a>
+              </div>
+              <div id="updateStatus" class="label" role="status">检查新版本；安装时由油猴确认。</div>
+            </section>
+
+            <div class="glass-section">
+              <label style="margin-top:0">浮窗不透明度 <span id="opacityValue">100%</span>
+                <input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度">
+              </label>
+
+              <div class="grid-2-cols">
+                <label>文档翻页间隔（10～600秒）<input id="docInterval" type="number" min="10" max="600" value="90"></label>
+                <label>填答间隔（0.5～50秒）<input id="fillInterval" type="number" min="0.5" max="50" step="0.5" value="4"></label>
+              </div>
+              <div class="label">文档需保留平台规定的学习时长；末页等待完成标记。每道题填入前按填答间隔等待，修改后自动保存。</div>
+
+              <label class="checkbox-row"><input id="webSearch" type="checkbox" checked> 联网检索后分析（DeepSeek 官方搜索）</label>
+              <div class="label">每题先检索 5 条网页结果，再交给模型分析；搜索另计费，5 元/千次成功请求。使用当前 DeepSeek 密钥直连官方搜索，代理密钥可能不适用。搜索失败会停止，可关闭此开关后重新分析。</div>
+            </div>
+
+            <details open>
+              <summary>DeepSeek 接口设置</summary>
+              <label>完整接口地址<input id="endpoint" value="https://api.deepseek.com/chat/completions" maxlength="500"></label>
+              <label>模型<input id="model" value="deepseek-flash" maxlength="100"></label>
+              <label>API 密钥<input id="apiKey" type="password" autocomplete="off" maxlength="500" placeholder="在这里填写 API Key"></label>
+              <label class="checkbox-row"><input id="rememberKey" type="checkbox" checked> 记住 API 密钥（保存设置或开始分析后生效）</label>
+              <label>题目容器选择器（可选）<input id="selector" maxlength="300" placeholder="留空时自动识别"></label>
+              <label>附加请求参数 JSON（仅按接口提供方文档配置）<textarea id="extra" maxlength="4000" placeholder="{}"></textarea></label>
+              <div class="label">开启联网检索后，脚本单独调用官方 Search API，并在结果中显示实际来源。来源相关性和答案仍需核对；关闭时仅依据模型知识。</div>
+              <div class="search-actions">
+                <button id="saveApi" class="btn-primary">保存设置</button>
+                <button id="forgetKey" class="btn-danger">清除密钥</button>
+              </div>
+              <div id="settingsStatus" class="label" role="status">设置保存在本机油猴存储中。</div>
+            </details>
+          </div>
         </div>
-        <div id="settingsPage" role="tabpanel" aria-labelledby="settingsTab" hidden>
-          <section class="update-box" aria-label="脚本更新">
-            <div class="update-heading"><strong>脚本更新</strong><span class="update-version">当前 v4.14</span></div>
-            <div class="update-actions"><button id="checkUpdate">检查更新</button><a id="installUpdate" hidden target="_blank" rel="noopener noreferrer">安装新版</a></div>
-            <div id="updateStatus" class="label" role="status">检查新版本；安装时由油猴确认。</div>
-          </section>
-          <label>浮窗不透明度 <span id="opacityValue">100%</span><input id="opacity" type="range" min="35" max="100" value="100" aria-label="浮窗不透明度"></label>
-          <label>文档翻页间隔（秒，10～600）<input id="docInterval" type="number" min="10" max="600" value="90"></label>
-          <div class="label">文档需保留平台规定的学习时长；末页等待完成标记。隐藏页面时暂停翻页。</div>
-          <label>填答间隔（秒，0.5～50）<input id="fillInterval" type="number" min="0.5" max="50" step="0.5" value="4"></label>
-          <div class="label">每道题开始填入前的等待时间，修改后自动保存。</div>
-          <label><input id="webSearch" type="checkbox" checked> 联网检索后分析（DeepSeek 官方搜索）</label>
-          <div class="label">每题先检索 5 条网页结果，再交给模型分析；搜索另计费，5 元/千次成功请求。使用当前 DeepSeek 密钥直连官方搜索，代理密钥可能不适用。搜索失败会停止，可关闭此开关后重新分析。</div>
-          <details open><summary>DeepSeek 接口设置</summary>
-            <label>完整接口地址<input id="endpoint" value="https://api.deepseek.com/chat/completions" maxlength="500"></label>
-            <label>模型<input id="model" value="deepseek-flash" maxlength="100"></label>
-            <label>API 密钥<input id="apiKey" type="password" autocomplete="off" maxlength="500" placeholder="在这里填写 API Key"></label>
-            <label><input id="rememberKey" type="checkbox" checked> 记住 API 密钥（保存设置或开始分析后生效）</label>
-            <label>题目容器选择器（可选）<input id="selector" maxlength="300" placeholder="留空时自动识别"></label>
-            <label>附加请求参数 JSON（仅按接口提供方文档配置）<textarea id="extra" maxlength="4000" placeholder="{}"></textarea></label>
-            <div class="label">开启联网检索后，脚本单独调用官方 Search API，并在结果中显示实际来源。来源相关性和答案仍需核对；关闭时仅依据模型知识。</div>
-            <div class="search-actions"><button id="saveApi">保存设置</button><button id="forgetKey">清除密钥</button></div>
-            <div id="settingsStatus" class="label" role="status">设置保存在本机油猴存储中。</div>
-          </details>
-        </div>
-        </div>
-        <footer aria-label="随机梗与作者"><div id="memeText"></div><div class="author">@山川</div></footer>
+
+        <footer aria-label="随机梗与作者">
+          <div id="memeText"></div>
+          <div class="author">@山川</div>
+        </footer>
       </section>
+
       <div class="overlay" id="notice" hidden>
         <section class="message" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
           <h2 id="doneTitle">当前任务已完成</h2>
           <p id="completionText">当前课程目录中的视频均已显示完成。</p>
-          <p id="summary"></p><button id="close">知道了</button>
+          <p id="summary"></p>
+          <button id="close">知道了</button>
         </section>
       </div>`;
     document.body.append(host);
     const $ = id => root.getElementById(id);
     const write = (id, text) => { if ($(id).textContent !== text) $(id).textContent = text; };
     write('count', String(count));
+
     let memeIndex = -1, memeTimer = null;
     function rotateMeme() {
         const choice = Math.floor(Math.random() * (MEMES.length - (memeIndex < 0 ? 0 : 1)));
@@ -495,8 +607,10 @@
         $('notice').hidden = true; $('pause').disabled = false; write('pause', '暂停');
         start();
     }
+    let refreshExamName = () => {};
     function check() {
         syncCourse();
+        refreshExamName();
         if (!activeCourse) {
             write('status', '视频检测待命 · 搜题功能可用');
             return;
@@ -641,7 +755,7 @@
     start();
 
     function setupUpdater() {
-        const current = '4.14';
+        const current = '4.15';
         const metadataURL = 'https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/learning.meta.js';
         const downloadURL = "https://raw.githubusercontent.com/moonlightman/gcl-learning-assistant/main/%E9%91%AB%E7%9F%A5%E6%B5%B7-%E8%87%AA%E5%8A%A8%E7%BB%A7%E7%BB%AD%E5%AD%A6%E4%B9%A0.user.js";
         let handle = null, disposed = false, checking = false;
@@ -702,7 +816,8 @@
             $('card').classList.toggle('mini', !!settings.mini);
             $('minimize').textContent = settings.mini ? '＋' : '−';
             $('minimize').setAttribute('aria-label', settings.mini ? '展开浮窗' : '最小化');
-            $('card').style.opacity = String(settings.opacity / 100);
+            $('card').style.opacity = '1';
+            $('card').style.setProperty('--surface-alpha', String(0.72 + (settings.opacity - 35) / 65 * 0.26));
             $('opacity').value = settings.opacity; write('opacityValue', `${settings.opacity}%`);
             if (Number.isFinite(settings.x) && Number.isFinite(settings.y)) place(settings.x, settings.y);
         }
@@ -846,18 +961,50 @@
 
         const clean = value => (value || '').replace(/\s+/g, ' ').trim();
         let runExam = '';
-        const panel = document.querySelector('.yxtulcdsdk-review-fixed-content');
-        const defaultExamTitle = clean(panel?.firstElementChild?.firstElementChild?.textContent) || document.title.replace(/\s*-\s*鑫知海$/, '');
-        $('examGroup').value = defaultExamTitle;
-        let autoExamTitle = defaultExamTitle;
-        function examIdentity() {
-            const titleNode = document.querySelector('.yxtulcdsdk-review-fixed-content')?.firstElementChild?.firstElementChild;
-            const liveTitle = clean(titleNode?.textContent);
-            if (liveTitle && liveTitle.length <= 200 && $('examGroup').value === autoExamTitle) {
-                $('examGroup').value = liveTitle; autoExamTitle = liveTitle;
+        let titleScope = courseKey(), manualExamTitle = false;
+        function usableExamTitle(text) {
+            text = clean(text);
+            return text && text.length <= 200 && !/^(?:鑫知海|考试|课程考试|试卷|考试须知|课程介绍)$/.test(text) &&
+                !/^(?:单选题|多选题|判断题|共\s*\d+\s*(?:题|小题)|第\s*\d+\s*题)/.test(text) ? text : '';
+        }
+        function detectExamTitle() {
+            const panels = [...document.querySelectorAll('.yxtulcdsdk-review-fixed-content')].filter(visible);
+            if (panels.length === 1) {
+                const panel = panels[0];
+                const headings = [...panel.querySelectorAll('h1, h2, [role="heading"]')]
+                    .filter(el => visible(el) && !el.closest('.pb24.ph32'))
+                    .map(el => usableExamTitle(el.textContent)).filter(Boolean);
+                const unique = [...new Set(headings)];
+                if (unique.length === 1) return unique[0];
+                // The current platform's title is the first nested child of the exam panel.
+                const node = panel.firstElementChild?.firstElementChild;
+                if (node && !node.children.length && visible(node)) {
+                    const title = usableExamTitle(node.textContent);
+                    if (title) return title;
+                }
             }
-            const title = $('examGroup').value.trim();
-            if (!title || !courseKey()) throw Error('请在课程考试页填写考试分组名称。');
+            return usableExamTitle(document.title.replace(/\s*[-—|]\s*鑫知海\s*$/, ''));
+        }
+        function syncExamTitle() {
+            if (destroyed) return;
+            const scope = courseKey();
+            if (scope !== titleScope) { titleScope = scope; manualExamTitle = false; $('examGroup').value = ''; }
+            if (manualExamTitle || running) return;
+            const title = detectExamTitle();
+            if ($('examGroup').value !== title) $('examGroup').value = title;
+        }
+        $('examGroup').addEventListener('input', () => {
+            manualExamTitle = !!$('examGroup').value.trim();
+        }, { signal: events.signal });
+        refreshExamName = syncExamTitle;
+        syncExamTitle();
+        const titleObserver = typeof window.MutationObserver === 'function'
+            ? new window.MutationObserver(syncExamTitle) : null;
+        titleObserver?.observe(document.body, { childList: true, subtree: true, characterData: true });
+        function examIdentity() {
+            syncExamTitle();
+            const title = !manualExamTitle && running ? detectExamTitle() : $('examGroup').value.trim();
+            if (!title || !courseKey()) throw Error('未识别到考试名称，请手动填写后重试。');
             return JSON.stringify([courseKey(), title]);
         }
         function askFill() {
@@ -914,6 +1061,7 @@
             $('question').value = ''; resetResults(); write('searchStatus', '题目及结果已清空。');
         });
         function readQuestions() {
+            syncExamTitle();
             const selector = $('selector').value.trim();
             const questions = [];
             let expected = 0, hasImages = false;
@@ -1112,7 +1260,7 @@
             for (const [i, source] of result.sources.entries()) {
                 const link = document.createElement('a');
                 link.textContent = `[${i + 1}] ${source.title}`; link.href = source.url;
-                link.target = '_blank'; link.rel = 'noopener noreferrer'; link.style.color = '#69dfb2';
+                link.target = '_blank'; link.rel = 'noopener noreferrer'; link.style.color = '#007aff';
                 const row = document.createElement('div'); row.append(link); article.append(row);
             }
             $('results').append(article);
@@ -1246,6 +1394,6 @@
                 if (id === runId && !destroyed) busy(false);
             }
         });
-        return () => { destroyed = true; stopApi(); $('apiKey').value = ''; };
+        return () => { destroyed = true; titleObserver?.disconnect(); refreshExamName = () => {}; stopApi(); $('apiKey').value = ''; };
     }
 })();
